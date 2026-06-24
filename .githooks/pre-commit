@@ -1,0 +1,22 @@
+#!/bin/bash
+# Pre-commit hook: gitleaks + sensitive data check
+
+set -euo pipefail
+
+echo "🔍 Running gitleaks..."
+if command -v gitleaks &> /dev/null; then
+    gitleaks protect --staged --config .gitleaks.toml --no-banner
+else
+    echo "⚠️  gitleaks not installed, skipping (brew install gitleaks)"
+fi
+
+echo "🔍 Checking for sensitive data patterns..."
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+if [ -n "$STAGED_FILES" ]; then
+    if echo "$STAGED_FILES" | xargs grep -lE '/Users/|178625946981|3\.112\.208' 2>/dev/null; then
+        echo "❌ Sensitive data detected in staged files!"
+        exit 1
+    fi
+fi
+
+echo "✅ Pre-commit checks passed"

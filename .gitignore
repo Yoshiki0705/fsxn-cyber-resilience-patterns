@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+.venv/
+venv/
+ENV/
+
+# CDK / CloudFormation
+cdk.out/
+.aws-sam/
+samconfig.toml
+
+# Node
+node_modules/
+package-lock.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test / Coverage
+.coverage
+htmlcov/
+.hypothesis/
+.pytest_cache/
+
+# Environment
+.env
+.env.local
+*.pem
+
+# Private notes (review provenance, persona details)
+.private/
