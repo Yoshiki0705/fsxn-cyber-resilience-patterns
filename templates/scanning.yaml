@@ -1,0 +1,416 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  FSx for ONTAP Cyber Resilience - File Scanning Stack.
+  EC2 instances for TrendAI Vision One File Security (Vscan/ICAP) and
+  Deep Instinct for NetApp ONTAP, with associated IAM roles and instance profiles.
+
+# -------------------------------------------------------------------
+# Parameters
+# -------------------------------------------------------------------
+Parameters:
+  ProjectName:
+    Type: String
+    Default: fsxn-cyber-resilience
+    Description: Project name used for resource naming and tagging.
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - production
+    Description: Deployment environment.
+
+  # --- Scanner Selection ---
+  EnableVscan:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: >
+      Deploy TrendAI Vision One File Security Vscan server.
+      Requires TrendAI license and activation token.
+
+  EnableDeepInstinct:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: >
+      Deploy Deep Instinct for NetApp ONTAP agent.
+      Requires Deep Instinct license and management console access.
+
+  # --- EC2 Configuration ---
+  VscanInstanceType:
+    Type: String
+    Default: c6g.xlarge
+    AllowedValues:
+      - c6g.large
+      - c6g.xlarge
+      - c6g.2xlarge
+      - c7g.large
+      - c7g.xlarge
+      - c7g.2xlarge
+    Description: >
+      Instance type for Vscan server. Compute-optimized recommended
+      for ICAP scanning workloads. ARM64 (Graviton) for cost efficiency.
+
+  DeepInstinctInstanceType:
+    Type: String
+    Default: c6i.xlarge
+    AllowedValues:
+      - c6i.large
+      - c6i.xlarge
+      - c6i.2xlarge
+      - c5.large
+      - c5.xlarge
+      - c5.2xlarge
+    Description: >
+      Instance type for Deep Instinct agent. x86_64 required
+      (DI agent does not support ARM64).
+
+  VscanAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+    Description: AMI for Vscan server (Amazon Linux 2023 ARM64 default).
+
+  DeepInstinctAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: AMI for Deep Instinct agent (Amazon Linux 2023 x86_64 default).
+
+  KeyPairName:
+    Type: String
+    Default: ''
+    Description: >
+      EC2 Key Pair name for SSH access (optional).
+      If empty, instances are accessible only via SSM Session Manager.
+
+  # --- Network References (from Network Stack) ---
+  SubnetSecurity1Id:
+    Type: String
+    Description: Security subnet AZ1 ID (from Network Stack output).
+
+  SubnetSecurity2Id:
+    Type: String
+    Description: Security subnet AZ2 ID (for future Multi-AZ scanner deployment).
+
+  SgVscanId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Default: ''
+    Description: Security Group ID for Vscan server (from Network Stack output).
+
+  SgDeepInstinctId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Default: ''
+    Description: Security Group ID for Deep Instinct agent (from Network Stack output).
+
+  # --- TrendAI Configuration ---
+  TrendAiActivationToken:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: >
+      TrendAI Vision One activation token for Vscan registration.
+      Store in Secrets Manager for production deployments.
+
+  TrendAiServerUrl:
+    Type: String
+    Default: ''
+    Description: TrendAI Vision One server URL for agent registration.
+
+  # --- Deep Instinct Configuration ---
+  DeepInstinctManagementUrl:
+    Type: String
+    Default: ''
+    Description: Deep Instinct management console URL.
+
+  DeepInstinctApiKey:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: >
+      Deep Instinct API key for agent registration.
+      Store in Secrets Manager for production deployments.
+
+# -------------------------------------------------------------------
+# Conditions
+# -------------------------------------------------------------------
+Conditions:
+  DeployVscan: !Equals [!Ref EnableVscan, 'true']
+  DeployDeepInstinct: !Equals [!Ref EnableDeepInstinct, 'true']
+  HasKeyPair: !Not [!Equals [!Ref KeyPairName, '']]
+
+# -------------------------------------------------------------------
+# Resources
+# -------------------------------------------------------------------
+Resources:
+
+  # ---------------------------------------------------------------
+  # IAM - Shared scanner instance role (SSM + CloudWatch)
+  # ---------------------------------------------------------------
+  ScannerInstanceRole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      RoleName: !Sub '${ProjectName}-scanner-role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore'
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/CloudWatchAgentServerPolicy'
+      Policies:
+        - PolicyName: ScannerSecretsAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ProjectName}-scanner-*'
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/*'
+                Condition:
+                  StringEquals:
+                    kms:ViaService: !Sub 'secretsmanager.${AWS::Region}.amazonaws.com'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: scanning
+
+  ScannerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub '${ProjectName}-scanner-profile-${Environment}'
+      Roles:
+        - !Ref ScannerInstanceRole
+
+  # ---------------------------------------------------------------
+  # TrendAI Vision One - Vscan Server (ICAP)
+  # ---------------------------------------------------------------
+  VscanInstance:
+    Type: AWS::EC2::Instance
+    Condition: DeployVscan
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      InstanceType: !Ref VscanInstanceType
+      ImageId: !Ref VscanAmiId
+      SubnetId: !Ref SubnetSecurity1Id
+      SecurityGroupIds:
+        - !Ref SgVscanId
+      IamInstanceProfile: !Ref ScannerInstanceProfile
+      KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref 'AWS::NoValue']
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 50
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+
+          # System updates
+          dnf update -y
+          dnf install -y amazon-cloudwatch-agent nfs-utils
+
+          # Enable and start SSM agent
+          systemctl enable amazon-ssm-agent
+          systemctl start amazon-ssm-agent
+
+          # Placeholder: TrendAI Vscan agent installation
+          # Actual installation requires:
+          # 1. Download TrendAI agent package from Vision One console
+          # 2. Install with activation token
+          # 3. Configure ICAP listener on port 1344
+          # 4. Register NFS mount points for file access
+          #
+          # Example (replace with actual commands):
+          # curl -o /tmp/trendai-agent.rpm "${TrendAiServerUrl}/download/agent"
+          # rpm -i /tmp/trendai-agent.rpm
+          # /opt/trendmicro/bin/register --token "${TrendAiActivationToken}"
+
+          echo "Vscan instance provisioned. Manual agent installation required."
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-vscan-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: scanning
+        - Key: Component
+          Value: trendai-vscan
+
+  # ---------------------------------------------------------------
+  # Deep Instinct for NetApp ONTAP - Agent
+  # ---------------------------------------------------------------
+  DeepInstinctInstance:
+    Type: AWS::EC2::Instance
+    Condition: DeployDeepInstinct
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      InstanceType: !Ref DeepInstinctInstanceType
+      ImageId: !Ref DeepInstinctAmiId
+      SubnetId: !Ref SubnetSecurity1Id
+      SecurityGroupIds:
+        - !Ref SgDeepInstinctId
+      IamInstanceProfile: !Ref ScannerInstanceProfile
+      KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref 'AWS::NoValue']
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 100
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+
+          # System updates
+          dnf update -y
+          dnf install -y amazon-cloudwatch-agent nfs-utils
+
+          # Enable and start SSM agent
+          systemctl enable amazon-ssm-agent
+          systemctl start amazon-ssm-agent
+
+          # Placeholder: Deep Instinct agent installation
+          # Actual installation requires:
+          # 1. Download DI agent package from management console
+          # 2. Install with API key for registration
+          # 3. Configure ICAP listener on port 1344
+          # 4. Register NFS mount points for file access
+          # 5. Configure FPolicy integration via ONTAP CLI
+          #
+          # Example (replace with actual commands):
+          # curl -o /tmp/di-agent.rpm "${DeepInstinctManagementUrl}/download/ontap-agent"
+          # rpm -i /tmp/di-agent.rpm
+          # /opt/deepinstinct/bin/register --api-key "${DeepInstinctApiKey}"
+
+          echo "Deep Instinct instance provisioned. Manual agent installation required."
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-deep-instinct-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: scanning
+        - Key: Component
+          Value: deep-instinct
+
+  # ---------------------------------------------------------------
+  # CloudWatch Alarms - Scanner Health
+  # ---------------------------------------------------------------
+  VscanStatusAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: DeployVscan
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      AlarmName: !Sub '${ProjectName}-vscan-status-${Environment}'
+      AlarmDescription: Vscan instance status check failure
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref VscanInstance
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: breaching
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Layer
+          Value: scanning
+
+  DeepInstinctStatusAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: DeployDeepInstinct
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      AlarmName: !Sub '${ProjectName}-deep-instinct-status-${Environment}'
+      AlarmDescription: Deep Instinct instance status check failure
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref DeepInstinctInstance
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: breaching
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Layer
+          Value: scanning
+
+# -------------------------------------------------------------------
+# Outputs
+# -------------------------------------------------------------------
+Outputs:
+  VscanInstanceId:
+    Condition: DeployVscan
+    Description: Vscan EC2 instance ID
+    Value: !Ref VscanInstance
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-VscanInstanceId'
+
+  VscanPrivateIp:
+    Condition: DeployVscan
+    Description: Vscan private IP (for FPolicy ICAP target configuration)
+    Value: !GetAtt VscanInstance.PrivateIp
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-VscanPrivateIp'
+
+  DeepInstinctInstanceId:
+    Condition: DeployDeepInstinct
+    Description: Deep Instinct EC2 instance ID
+    Value: !Ref DeepInstinctInstance
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-DeepInstinctInstanceId'
+
+  DeepInstinctPrivateIp:
+    Condition: DeployDeepInstinct
+    Description: Deep Instinct private IP (for FPolicy ICAP target configuration)
+    Value: !GetAtt DeepInstinctInstance.PrivateIp
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-DeepInstinctPrivateIp'
+
+  ScannerInstanceRoleArn:
+    Description: IAM Role ARN for scanner instances
+    Value: !GetAtt ScannerInstanceRole.Arn
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-ScannerRoleArn'
