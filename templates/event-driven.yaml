@@ -42,6 +42,8 @@ Resources:
   # ---------------------------------------------------------------
   SecurityEventQueue:
     Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       QueueName: !Sub '${ProjectName}-security-events-${Environment}'
       VisibilityTimeout: 300
@@ -60,6 +62,8 @@ Resources:
 
   SecurityEventDlq:
     Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       QueueName: !Sub '${ProjectName}-security-events-dlq-${Environment}'
       MessageRetentionPeriod: 1209600
@@ -290,6 +294,8 @@ Resources:
   # ---------------------------------------------------------------
   ApprovalQueue:
     Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       QueueName: !Sub '${ProjectName}-approval-${Environment}'
       VisibilityTimeout: 900
@@ -448,6 +454,8 @@ Resources:
   # ---------------------------------------------------------------
   StepFunctionsLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: !Sub '/aws/stepfunctions/${ProjectName}-quarantine-${Environment}'
       RetentionInDays: 90
