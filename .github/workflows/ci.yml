@@ -75,7 +75,7 @@ jobs:
 
       - name: Run pytest
         run: |
-          pytest tests/ -v --tb=short --junitxml=test-results.xml
+          pytest tests/ shared/tests/ -v --tb=short --junitxml=test-results.xml
 
       - name: Upload test results
         if: always()
