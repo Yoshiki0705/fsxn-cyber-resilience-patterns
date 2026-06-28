@@ -8,8 +8,10 @@ help: ## Show this help
 # -------------------------------------------------------------------
 # Setup
 # -------------------------------------------------------------------
-setup: ## Install development dependencies
-	python3 -m pip install -r requirements-dev.txt
+setup: ## Install development dependencies (creates .venv if not present)
+	@test -d .venv || python3 -m venv .venv
+	.venv/bin/pip install -r requirements-dev.txt
+	@echo "Activate with: source .venv/bin/activate"
 
 # -------------------------------------------------------------------
 # Validation
@@ -37,10 +39,10 @@ validate: ## Validate templates with AWS CloudFormation API (requires credential
 # -------------------------------------------------------------------
 test: ## Run all tests (cfn-lint + pytest)
 	cfn-lint templates/*.yaml || test $$? -le 12
-	pytest tests/ -v --tb=short
+	pytest tests/ shared/tests/ -v --tb=short
 
 test-cov: ## Run tests with coverage report
-	pytest tests/ -v --cov=solutions --cov-report=term-missing --cov-fail-under=80
+	pytest tests/ shared/tests/ -v --cov=solutions --cov-report=term-missing --cov-fail-under=80
 
 # -------------------------------------------------------------------
 # Security
