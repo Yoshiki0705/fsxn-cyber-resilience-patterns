@@ -39,12 +39,19 @@ Parameters:
     Type: AWS::EC2::AvailabilityZone::Name
     Description: Second availability zone.
 
+  NotificationEmail:
+    Type: String
+    Default: ''
+    Description: Email for security alert notifications (passed to Event-Driven stack).
+
 # -------------------------------------------------------------------
 # Resources
 # -------------------------------------------------------------------
 Resources:
 
+  # ---------------------------------------------------------------
   # Network Stack
+  # ---------------------------------------------------------------
   NetworkStack:
     Type: AWS::CloudFormation::Stack
     DeletionPolicy: Delete
@@ -64,19 +71,48 @@ Resources:
         - Key: Layer
           Value: network
 
-  # Storage Stack (placeholder - to be implemented in Task 3)
-  # StorageStack:
-  #   Type: AWS::CloudFormation::Stack
-  #   DependsOn: NetworkStack
-  #   Properties:
-  #     TemplateURL: !Sub 'https://${TemplatesBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}storage.yaml'
+  # ---------------------------------------------------------------
+  # Storage Stack
+  # ---------------------------------------------------------------
+  StorageStack:
+    Type: AWS::CloudFormation::Stack
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    DependsOn: NetworkStack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplatesBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}storage.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: storage-native
 
-  # Event-Driven Stack (placeholder - to be implemented in Task 5)
-  # EventDrivenStack:
-  #   Type: AWS::CloudFormation::Stack
-  #   DependsOn: NetworkStack
-  #   Properties:
-  #     TemplateURL: !Sub 'https://${TemplatesBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}event-driven.yaml'
+  # ---------------------------------------------------------------
+  # Event-Driven Response Stack
+  # ---------------------------------------------------------------
+  EventDrivenStack:
+    Type: AWS::CloudFormation::Stack
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    DependsOn: NetworkStack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplatesBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}event-driven.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        NotificationEmail: !Ref NotificationEmail
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: event-driven
 
 # -------------------------------------------------------------------
 # Outputs
@@ -85,6 +121,14 @@ Outputs:
   NetworkStackId:
     Description: Network nested stack ID
     Value: !Ref NetworkStack
+
+  StorageStackId:
+    Description: Storage nested stack ID
+    Value: !Ref StorageStack
+
+  EventDrivenStackId:
+    Description: Event-Driven nested stack ID
+    Value: !Ref EventDrivenStack
 
   VpcId:
     Description: VPC ID from Network Stack
