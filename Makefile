@@ -47,8 +47,9 @@ test-cov: ## Run tests with coverage report
 # -------------------------------------------------------------------
 # Security
 # -------------------------------------------------------------------
-security: guard ## Run security checks (cfn-guard + gitleaks)
+security: guard ## Run security checks (cfn-guard + gitleaks + checkov)
 	gitleaks detect --config .gitleaks.toml --no-git --source . --verbose
+	checkov -d templates/ --framework cloudformation --quiet || true
 
 # -------------------------------------------------------------------
 # Deploy
