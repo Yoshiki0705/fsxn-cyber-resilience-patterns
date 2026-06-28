@@ -48,21 +48,31 @@ This repository provides reference architectures and deployable patterns for pro
 git clone https://github.com/Yoshiki0705/fsxn-cyber-resilience-patterns.git
 cd fsxn-cyber-resilience-patterns
 
-# Install development dependencies
-python3 -m pip install -r requirements-dev.txt
+# Setup virtual environment and install dependencies
+make setup
+source .venv/bin/activate
+
+# Configure git hooks (gitleaks + zizmor)
+git config core.hooksPath .githooks
 
 # Run linting (validates CloudFormation templates)
 make lint
 
 # Run tests (no AWS credentials needed)
 make test
+
+# Full pre-push validation
+./scripts/validate-all.sh
 ```
 
 ### Deployment (requires AWS credentials)
 
 ```bash
 # Deploy network stack to dev environment
-make deploy ENV=dev
+./scripts/deploy.sh dev network
+
+# Deploy all stacks
+./scripts/deploy.sh dev
 
 # Validate templates against AWS API
 make validate

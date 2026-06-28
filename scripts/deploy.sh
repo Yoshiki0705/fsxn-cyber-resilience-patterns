@@ -14,6 +14,19 @@ set -euo pipefail
 # -------------------------------------------------------------------
 # Configuration
 # -------------------------------------------------------------------
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    echo "Usage: $0 [ENV] [STACK]"
+    echo ""
+    echo "  ENV    Target environment: dev | staging | production (default: dev)"
+    echo "  STACK  Stack to deploy: network | events | all (default: all)"
+    echo ""
+    echo "Examples:"
+    echo "  $0                    # Deploy all stacks to dev"
+    echo "  $0 staging network   # Deploy network stack to staging"
+    echo "  $0 production        # Deploy all to production (requires confirmation)"
+    exit 0
+fi
+
 ENV="${1:-dev}"
 STACK="${2:-all}"
 REGION="${AWS_REGION:-ap-northeast-1}"

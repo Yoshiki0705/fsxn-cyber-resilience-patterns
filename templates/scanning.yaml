@@ -108,6 +108,14 @@ Parameters:
     Default: ''
     Description: Security Group ID for Deep Instinct agent (from Network Stack output).
 
+  # --- Encryption ---
+  EbsKmsKeyArn:
+    Type: String
+    Default: ''
+    Description: >
+      KMS Key ARN for EBS volume encryption. If empty, uses aws/ebs default key.
+      Recommended: use a dedicated CMK for production deployments.
+
   # --- TrendAI Configuration ---
   TrendAiActivationToken:
     Type: String
@@ -143,6 +151,7 @@ Conditions:
   DeployVscan: !Equals [!Ref EnableVscan, 'true']
   DeployDeepInstinct: !Equals [!Ref EnableDeepInstinct, 'true']
   HasKeyPair: !Not [!Equals [!Ref KeyPairName, '']]
+  HasEbsKmsKey: !Not [!Equals [!Ref EbsKmsKeyArn, '']]
 
 # -------------------------------------------------------------------
 # Resources
@@ -223,6 +232,7 @@ Resources:
             VolumeSize: 50
             VolumeType: gp3
             Encrypted: true
+            KmsKeyId: !If [HasEbsKmsKey, !Ref EbsKmsKeyArn, !Ref 'AWS::NoValue']
             DeleteOnTermination: true
       UserData:
         Fn::Base64: !Sub |
@@ -231,25 +241,25 @@ Resources:
 
           # System updates
           dnf update -y
-          dnf install -y amazon-cloudwatch-agent nfs-utils
+          dnf install -y amazon-cloudwatch-agent nfs-utils amazon-ssm-agent
 
           # Enable and start SSM agent
           systemctl enable amazon-ssm-agent
           systemctl start amazon-ssm-agent
 
-          # Placeholder: TrendAI Vscan agent installation
-          # Actual installation requires:
-          # 1. Download TrendAI agent package from Vision One console
-          # 2. Install with activation token
-          # 3. Configure ICAP listener on port 1344
-          # 4. Register NFS mount points for file access
-          #
-          # Example (replace with actual commands):
-          # curl -o /tmp/trendai-agent.rpm "${TrendAiServerUrl}/download/agent"
-          # rpm -i /tmp/trendai-agent.rpm
-          # /opt/trendmicro/bin/register --token "${TrendAiActivationToken}"
+          # Retrieve scanner credentials from Secrets Manager (never embed in UserData)
+          # TOKEN=$(aws secretsmanager get-secret-value \
+          #   --secret-id "${ProjectName}-scanner-trendai-${Environment}" \
+          #   --query 'SecretString' --output text --region ${AWS::Region} | jq -r '.token')
 
-          echo "Vscan instance provisioned. Manual agent installation required."
+          # Placeholder: TrendAI Vscan agent installation
+          # 1. Retrieve activation token from Secrets Manager (as shown above)
+          # 2. Download agent package from Vision One console
+          # 3. Install and register with token
+          # 4. Configure ICAP listener on port 1344
+          # 5. Mount FSx volumes read-only for file retrieval
+
+          echo "Vscan instance provisioned. Configure via SSM Session Manager."
       Tags:
         - Key: Name
           Value: !Sub '${ProjectName}-vscan-${Environment}'
@@ -284,6 +294,7 @@ Resources:
             VolumeSize: 100
             VolumeType: gp3
             Encrypted: true
+            KmsKeyId: !If [HasEbsKmsKey, !Ref EbsKmsKeyArn, !Ref 'AWS::NoValue']
             DeleteOnTermination: true
       UserData:
         Fn::Base64: !Sub |
@@ -292,26 +303,26 @@ Resources:
 
           # System updates
           dnf update -y
-          dnf install -y amazon-cloudwatch-agent nfs-utils
+          dnf install -y amazon-cloudwatch-agent nfs-utils amazon-ssm-agent
 
           # Enable and start SSM agent
           systemctl enable amazon-ssm-agent
           systemctl start amazon-ssm-agent
 
-          # Placeholder: Deep Instinct agent installation
-          # Actual installation requires:
-          # 1. Download DI agent package from management console
-          # 2. Install with API key for registration
-          # 3. Configure ICAP listener on port 1344
-          # 4. Register NFS mount points for file access
-          # 5. Configure FPolicy integration via ONTAP CLI
-          #
-          # Example (replace with actual commands):
-          # curl -o /tmp/di-agent.rpm "${DeepInstinctManagementUrl}/download/ontap-agent"
-          # rpm -i /tmp/di-agent.rpm
-          # /opt/deepinstinct/bin/register --api-key "${DeepInstinctApiKey}"
+          # Retrieve scanner credentials from Secrets Manager (never embed in UserData)
+          # API_KEY=$(aws secretsmanager get-secret-value \
+          #   --secret-id "${ProjectName}-scanner-deepinstinct-${Environment}" \
+          #   --query 'SecretString' --output text --region ${AWS::Region} | jq -r '.api_key')
 
-          echo "Deep Instinct instance provisioned. Manual agent installation required."
+          # Placeholder: Deep Instinct agent installation
+          # 1. Retrieve API key from Secrets Manager (as shown above)
+          # 2. Download DI agent package from management console
+          # 3. Install and register with API key
+          # 4. Configure ICAP listener on port 1344
+          # 5. Mount FSx volumes read-only for file retrieval
+          # 6. Configure FPolicy integration via ONTAP REST API
+
+          echo "Deep Instinct instance provisioned. Configure via SSM Session Manager."
       Tags:
         - Key: Name
           Value: !Sub '${ProjectName}-deep-instinct-${Environment}'
@@ -345,7 +356,7 @@ Resources:
       EvaluationPeriods: 3
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: breaching
+      TreatMissingData: notBreaching
       Tags:
         - Key: Project
           Value: !Ref ProjectName
@@ -370,7 +381,7 @@ Resources:
       EvaluationPeriods: 3
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
-      TreatMissingData: breaching
+      TreatMissingData: notBreaching
       Tags:
         - Key: Project
           Value: !Ref ProjectName

@@ -40,12 +40,18 @@ fi
 # -------------------------------------------------------------------
 log_info "Running cfn-guard..."
 if command -v cfn-guard &>/dev/null; then
+    GUARD_FAILED=0
     for tmpl in templates/*.yaml; do
-        cfn-guard validate \
+        if ! cfn-guard validate \
             --data "$tmpl" \
             --rules security/guard-rules/ \
-            --show-summary fail 2>/dev/null || true
+            --show-summary fail 2>/dev/null; then
+            GUARD_FAILED=1
+        fi
     done
+    if [[ $GUARD_FAILED -eq 1 ]]; then
+        log_warn "cfn-guard reported failures (review above)."
+    fi
 else
     log_warn "cfn-guard not found, skipping."
 fi
