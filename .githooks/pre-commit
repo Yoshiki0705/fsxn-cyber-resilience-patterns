@@ -1,8 +1,9 @@
 #!/bin/bash
-# Pre-commit hook: gitleaks + sensitive data check
+# Pre-commit hook: gitleaks + zizmor + sensitive data check
 
 set -euo pipefail
 
+# --- Gitleaks (secret detection) ---
 echo "🔍 Running gitleaks..."
 if command -v gitleaks &> /dev/null; then
     gitleaks protect --staged --config .gitleaks.toml --no-banner
@@ -10,8 +11,23 @@ else
     echo "⚠️  gitleaks not installed, skipping (brew install gitleaks)"
 fi
 
+# --- Zizmor (GitHub Actions security linting) ---
+echo "🔍 Running zizmor on workflow files..."
+STAGED_WORKFLOWS=$(git diff --cached --name-only --diff-filter=ACM -- '.github/workflows/*.yml' '.github/workflows/*.yaml')
+if [ -n "$STAGED_WORKFLOWS" ]; then
+    if command -v zizmor &> /dev/null; then
+        echo "$STAGED_WORKFLOWS" | xargs zizmor --format plain || {
+            echo "❌ zizmor found issues in workflow files!"
+            exit 1
+        }
+    else
+        echo "⚠️  zizmor not installed, skipping (pip install zizmor)"
+    fi
+fi
+
+# --- Sensitive data patterns ---
 echo "🔍 Checking for sensitive data patterns..."
-STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -v '\.githooks/')
 if [ -n "$STAGED_FILES" ]; then
     if echo "$STAGED_FILES" | xargs grep -lE '/Users/|178625946981|3\.112\.208' 2>/dev/null; then
         echo "❌ Sensitive data detected in staged files!"

@@ -26,4 +26,6 @@ paths = [
     '''\.gitleaks\.toml$''',
     '''node_modules/''',
     '''\.git/''',
+    '''shared/tests/''',
+    '''tests/''',
 ]
