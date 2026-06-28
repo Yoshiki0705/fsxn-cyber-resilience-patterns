@@ -1,0 +1,891 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  FSx for ONTAP Cyber Resilience - Network Stack.
+  VPC, Private Subnets (Multi-AZ), VPC Endpoints, Security Groups,
+  and optional NAT Gateway for scanner update access.
+
+# -------------------------------------------------------------------
+# Parameters
+# -------------------------------------------------------------------
+Parameters:
+  ProjectName:
+    Type: String
+    Default: fsxn-cyber-resilience
+    Description: Project name used for resource naming and tagging.
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - production
+    Description: Deployment environment.
+
+  VpcCidr:
+    Type: String
+    Default: '10.0.0.0/16'
+    Description: CIDR block for the VPC.
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$'
+
+  AvailabilityZone1:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: First availability zone.
+
+  AvailabilityZone2:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: Second availability zone.
+
+  EnableNatGateway:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: >
+      Enable NAT Gateway for outbound internet access (scanner signature updates).
+      Set to true for staging/production where scanners need to reach update servers.
+
+  ClientCidr:
+    Type: String
+    Default: '10.0.0.0/16'
+    Description: >
+      CIDR block for client workstations that access FSx for ONTAP via NFS/SMB.
+      Defaults to VPC CIDR (all VPC resources). Restrict for production.
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$'
+
+  # -----------------------------------------------------------------
+  # Bring Your Own VPC (existing infrastructure parameters)
+  # -----------------------------------------------------------------
+  UseExistingVpc:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: >
+      Set to 'true' to use an existing VPC instead of creating a new one.
+      When true, provide ExistingVpcId, ExistingSubnet*, and ExistingSg* parameters.
+
+  ExistingVpcId:
+    Type: String
+    Default: ''
+    Description: Existing VPC ID (e.g., vpc-0123456789abcdef0). Required when UseExistingVpc is true.
+
+  ExistingSubnetFsx1Id:
+    Type: String
+    Default: ''
+    Description: Existing FSx subnet AZ1 (for FSx for ONTAP preferred ENI).
+
+  ExistingSubnetFsx2Id:
+    Type: String
+    Default: ''
+    Description: Existing FSx subnet AZ2 (for FSx for ONTAP standby ENI).
+
+  ExistingSubnetCompute1Id:
+    Type: String
+    Default: ''
+    Description: Existing compute/Lambda subnet AZ1.
+
+  ExistingSubnetCompute2Id:
+    Type: String
+    Default: ''
+    Description: Existing compute/Lambda subnet AZ2.
+
+  ExistingSgFsxId:
+    Type: String
+    Default: ''
+    Description: Existing Security Group for FSx for ONTAP ENIs.
+
+  ExistingSgLambdaId:
+    Type: String
+    Default: ''
+    Description: Existing Security Group for Lambda functions.
+
+  ExistingActiveDirectoryId:
+    Type: String
+    Default: ''
+    Description: >
+      AWS Managed Microsoft AD or AD Connector directory ID for existing environments.
+      Used by storage stack for SVM AD join.
+
+# -------------------------------------------------------------------
+# Conditions
+# -------------------------------------------------------------------
+Conditions:
+  CreateNatGateway: !Equals [!Ref EnableNatGateway, 'true']
+  CreateNewVpc: !Equals [!Ref UseExistingVpc, 'false']
+
+# -------------------------------------------------------------------
+# Resources
+# -------------------------------------------------------------------
+Resources:
+
+  # ---------------------------------------------------------------
+  # VPC
+  # ---------------------------------------------------------------
+  Vpc:
+    Type: AWS::EC2::VPC
+    Condition: CreateNewVpc
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-vpc-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: network
+
+  # ---------------------------------------------------------------
+  # Internet Gateway (required for NAT Gateway)
+  # ---------------------------------------------------------------
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Condition: CreateNatGateway
+    Metadata:
+      Comment: Only created when both CreateNewVpc AND CreateNatGateway are true
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-igw-${Environment}'
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Condition: CreateNatGateway
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref Vpc
+
+  # ---------------------------------------------------------------
+  # Public Subnet (NAT Gateway placement - only when enabled)
+  # ---------------------------------------------------------------
+  SubnetPublic1:
+    Type: AWS::EC2::Subnet
+    Condition: CreateNatGateway
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: '10.0.254.0/24'
+      AvailabilityZone: !Ref AvailabilityZone1
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-subnet-public-1-${Environment}'
+
+  RouteTablePublic:
+    Type: AWS::EC2::RouteTable
+    Condition: CreateNatGateway
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-rt-public-${Environment}'
+
+  RoutePublicInternet:
+    Type: AWS::EC2::Route
+    Condition: CreateNatGateway
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref RouteTablePublic
+      DestinationCidrBlock: '0.0.0.0/0'
+      GatewayId: !Ref InternetGateway
+
+  RouteTableAssocPublic1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateNatGateway
+    Properties:
+      SubnetId: !Ref SubnetPublic1
+      RouteTableId: !Ref RouteTablePublic
+
+  # ---------------------------------------------------------------
+  # NAT Gateway (for scanner outbound updates)
+  # ---------------------------------------------------------------
+  NatEip:
+    Type: AWS::EC2::EIP
+    Condition: CreateNatGateway
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-nat-eip-${Environment}'
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Condition: CreateNatGateway
+    Properties:
+      AllocationId: !GetAtt NatEip.AllocationId
+      SubnetId: !Ref SubnetPublic1
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-nat-${Environment}'
+
+  # ---------------------------------------------------------------
+  # Subnets - FSx (for FSx for ONTAP ENIs)
+  # ---------------------------------------------------------------
+  SubnetFsx1:
+    Type: AWS::EC2::Subnet
+    Condition: CreateNewVpc
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: '10.0.1.0/24'
+      AvailabilityZone: !Ref AvailabilityZone1
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-subnet-fsx-1-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: storage-native
+
+  SubnetFsx2:
+    Type: AWS::EC2::Subnet
+    Condition: CreateNewVpc
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: '10.0.2.0/24'
+      AvailabilityZone: !Ref AvailabilityZone2
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-subnet-fsx-2-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: storage-native
+
+  # ---------------------------------------------------------------
+  # Subnets - Security (for Vscan/Deep Instinct EC2)
+  # ---------------------------------------------------------------
+  SubnetSecurity1:
+    Type: AWS::EC2::Subnet
+    Condition: CreateNewVpc
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: '10.0.3.0/24'
+      AvailabilityZone: !Ref AvailabilityZone1
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-subnet-security-1-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: scanning
+
+  SubnetSecurity2:
+    Type: AWS::EC2::Subnet
+    Condition: CreateNewVpc
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: '10.0.4.0/24'
+      AvailabilityZone: !Ref AvailabilityZone2
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-subnet-security-2-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: scanning
+
+  # ---------------------------------------------------------------
+  # Subnets - Compute (for Lambda, Step Functions)
+  # ---------------------------------------------------------------
+  SubnetCompute1:
+    Type: AWS::EC2::Subnet
+    Condition: CreateNewVpc
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: '10.0.5.0/24'
+      AvailabilityZone: !Ref AvailabilityZone1
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-subnet-compute-1-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: event-driven
+
+  SubnetCompute2:
+    Type: AWS::EC2::Subnet
+    Condition: CreateNewVpc
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: '10.0.6.0/24'
+      AvailabilityZone: !Ref AvailabilityZone2
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-subnet-compute-2-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: event-driven
+
+  # ---------------------------------------------------------------
+  # Route Tables
+  # ---------------------------------------------------------------
+
+  # Isolated route table (no internet - FSx and Compute subnets)
+  RouteTableIsolated:
+    Type: AWS::EC2::RouteTable
+    Condition: CreateNewVpc
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-rt-isolated-${Environment}'
+
+  # Private route table with NAT (Security subnets - scanner updates)
+  RouteTablePrivate:
+    Type: AWS::EC2::RouteTable
+    Condition: CreateNewVpc
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-rt-private-${Environment}'
+
+  RoutePrivateNat:
+    Type: AWS::EC2::Route
+    Condition: CreateNatGateway
+    Properties:
+      RouteTableId: !Ref RouteTablePrivate
+      DestinationCidrBlock: '0.0.0.0/0'
+      NatGatewayId: !Ref NatGateway
+
+  # FSx subnets → isolated (no internet needed)
+  RouteTableAssocFsx1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetFsx1
+      RouteTableId: !Ref RouteTableIsolated
+
+  RouteTableAssocFsx2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetFsx2
+      RouteTableId: !Ref RouteTableIsolated
+
+  # Security subnets → private (NAT for scanner updates when enabled)
+  RouteTableAssocSecurity1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetSecurity1
+      RouteTableId: !Ref RouteTablePrivate
+
+  RouteTableAssocSecurity2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetSecurity2
+      RouteTableId: !Ref RouteTablePrivate
+
+  # Compute subnets → isolated (VPC Endpoints only)
+  RouteTableAssocCompute1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetCompute1
+      RouteTableId: !Ref RouteTableIsolated
+
+  RouteTableAssocCompute2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetCompute2
+      RouteTableId: !Ref RouteTableIsolated
+
+  # ---------------------------------------------------------------
+  # VPC Endpoints
+  # ---------------------------------------------------------------
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref RouteTableIsolated
+        - !Ref RouteTablePrivate
+
+  SqsInterfaceEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.sqs'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref SubnetCompute1
+        - !Ref SubnetCompute2
+      SecurityGroupIds:
+        - !Ref SgVpcEndpoints
+
+  SecretsManagerEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.secretsmanager'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref SubnetCompute1
+        - !Ref SubnetCompute2
+      SecurityGroupIds:
+        - !Ref SgVpcEndpoints
+
+  KmsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.kms'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref SubnetCompute1
+        - !Ref SubnetCompute2
+      SecurityGroupIds:
+        - !Ref SgVpcEndpoints
+
+  StsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.sts'
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref SubnetCompute1
+        - !Ref SubnetCompute2
+      SecurityGroupIds:
+        - !Ref SgVpcEndpoints
+
+  # ---------------------------------------------------------------
+  # Security Groups
+  # ---------------------------------------------------------------
+
+  # SG for VPC Endpoints (shared)
+  SgVpcEndpoints:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for VPC Interface Endpoints
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref VpcCidr
+          Description: HTTPS from VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-sg-vpc-endpoints-${Environment}'
+
+  # SG for NFS/SMB client workstations
+  SgClient:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Client workstations accessing FSx for ONTAP via NFS/SMB
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: !Ref ClientCidr
+          Description: Allow traffic from client CIDR range
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-sg-client-${Environment}'
+        - Key: Layer
+          Value: network
+
+  # SG for FSx for ONTAP ENIs
+  SgFsx:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: FSx for ONTAP ENI - NFS/SMB/ICAP/ONTAP management
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-sg-fsx-${Environment}'
+        - Key: Layer
+          Value: storage-native
+
+  # SG for TrendAI Vscan Server
+  SgVscan:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: TrendAI Vscan Server - ICAP scanner
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-sg-vscan-${Environment}'
+        - Key: Layer
+          Value: scanning
+
+  # SG for Deep Instinct Agent
+  SgDeepInstinct:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Deep Instinct Agent - AI scanner
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-sg-deep-instinct-${Environment}'
+        - Key: Layer
+          Value: scanning
+
+  # SG for Lambda functions
+  SgLambda:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Lambda functions - outbound to VPC Endpoints and ONTAP API
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-sg-lambda-${Environment}'
+        - Key: Layer
+          Value: event-driven
+
+  # ---------------------------------------------------------------
+  # Security Group Rules - FSx for ONTAP
+  # Full port requirements:
+  #   NFS: TCP/UDP 2049, TCP 111 (portmapper)
+  #   SMB: TCP 445, TCP 139
+  #   ICAP: TCP 1344 (FPolicy to scanners)
+  #   ONTAP REST API: TCP 443
+  #   SSH (mgmt): TCP 22
+  #   Intercluster: TCP 11104, 11105
+  # ---------------------------------------------------------------
+
+  # NFS from clients
+  SgFsxIngressNfsTcpFromClient:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SgFsx
+      IpProtocol: tcp
+      FromPort: 2049
+      ToPort: 2049
+      SourceSecurityGroupId: !Ref SgClient
+      Description: NFS TCP from client workstations
+
+  SgFsxIngressNfsUdpFromClient:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SgFsx
+      IpProtocol: udp
+      FromPort: 2049
+      ToPort: 2049
+      SourceSecurityGroupId: !Ref SgClient
+      Description: NFS UDP from client workstations
+
+  SgFsxIngressPortmapperFromClient:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SgFsx
+      IpProtocol: tcp
+      FromPort: 111
+      ToPort: 111
+      SourceSecurityGroupId: !Ref SgClient
+      Description: NFS portmapper from client workstations
+
+  # SMB from clients
+  SgFsxIngressSmbFromClient:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SgFsx
+      IpProtocol: tcp
+      FromPort: 445
+      ToPort: 445
+      SourceSecurityGroupId: !Ref SgClient
+      Description: SMB from client workstations
+
+  SgFsxIngressNetbiosFromClient:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SgFsx
+      IpProtocol: tcp
+      FromPort: 139
+      ToPort: 139
+      SourceSecurityGroupId: !Ref SgClient
+      Description: NetBIOS/SMB from client workstations
+
+  # NFS from scanners (for file access during scanning)
+  SgFsxIngressNfsFromVscan:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SgFsx
+      IpProtocol: tcp
+      FromPort: 2049
+      ToPort: 2049
+      SourceSecurityGroupId: !Ref SgVscan
+      Description: NFS from Vscan server
+
+  SgFsxIngressNfsFromDi:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SgFsx
+      IpProtocol: tcp
+      FromPort: 2049
+      ToPort: 2049
+      SourceSecurityGroupId: !Ref SgDeepInstinct
+      Description: NFS from Deep Instinct agent
+
+  # ONTAP REST API from Lambda
+  SgFsxIngressHttpsFromLambda:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SgFsx
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      SourceSecurityGroupId: !Ref SgLambda
+      Description: HTTPS from Lambda (ONTAP REST API)
+
+  # FPolicy ICAP egress to scanners
+  SgFsxEgressIcapToVscan:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref SgFsx
+      IpProtocol: tcp
+      FromPort: 1344
+      ToPort: 1344
+      DestinationSecurityGroupId: !Ref SgVscan
+      Description: ICAP to Vscan server (FPolicy sync)
+
+  SgFsxEgressIcapToDi:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref SgFsx
+      IpProtocol: tcp
+      FromPort: 1344
+      ToPort: 1344
+      DestinationSecurityGroupId: !Ref SgDeepInstinct
+      Description: ICAP to Deep Instinct agent (FPolicy sync)
+
+  # FSx egress to VPC Endpoints (for SnapMirror, S3 tiering)
+  SgFsxEgressHttpsToEndpoints:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref SgFsx
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: !Ref VpcCidr
+      Description: HTTPS to VPC Endpoints (S3 tiering, management)
+
+  # ---------------------------------------------------------------
+  # Security Group Rules - Vscan (TrendAI)
+  # ---------------------------------------------------------------
+  SgVscanIngressIcapFromFsx:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SgVscan
+      IpProtocol: tcp
+      FromPort: 1344
+      ToPort: 1344
+      SourceSecurityGroupId: !Ref SgFsx
+      Description: ICAP from FSx FPolicy
+
+  SgVscanEgressNfsToFsx:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref SgVscan
+      IpProtocol: tcp
+      FromPort: 2049
+      ToPort: 2049
+      DestinationSecurityGroupId: !Ref SgFsx
+      Description: NFS to FSx (file retrieval for scanning)
+
+  SgVscanEgressHttps:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref SgVscan
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: '0.0.0.0/0'
+      Description: HTTPS to TrendAI update servers (via NAT Gateway)
+
+  # ---------------------------------------------------------------
+  # Security Group Rules - Deep Instinct
+  # ---------------------------------------------------------------
+  SgDiIngressIcapFromFsx:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref SgDeepInstinct
+      IpProtocol: tcp
+      FromPort: 1344
+      ToPort: 1344
+      SourceSecurityGroupId: !Ref SgFsx
+      Description: ICAP from FSx FPolicy
+
+  SgDiEgressNfsToFsx:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref SgDeepInstinct
+      IpProtocol: tcp
+      FromPort: 2049
+      ToPort: 2049
+      DestinationSecurityGroupId: !Ref SgFsx
+      Description: NFS to FSx (file retrieval for scanning)
+
+  SgDiEgressHttps:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref SgDeepInstinct
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: '0.0.0.0/0'
+      Description: HTTPS to Deep Instinct management (via NAT Gateway)
+
+  # ---------------------------------------------------------------
+  # Security Group Rules - Lambda
+  # ---------------------------------------------------------------
+  SgLambdaEgressHttpsToEndpoints:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref SgLambda
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: !Ref VpcCidr
+      Description: HTTPS to VPC Endpoints and ONTAP REST API
+
+# -------------------------------------------------------------------
+# Outputs (for cross-stack references — works with both new and existing VPC)
+# -------------------------------------------------------------------
+Outputs:
+  VpcId:
+    Description: VPC ID (new or existing)
+    Value: !If
+      - CreateNewVpc
+      - !Ref Vpc
+      - !Ref ExistingVpcId
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-VpcId'
+
+  VpcCidrBlock:
+    Condition: CreateNewVpc
+    Description: VPC CIDR block (only for new VPC)
+    Value: !Ref VpcCidr
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-VpcCidr'
+
+  SubnetFsx1Id:
+    Description: FSx subnet AZ1
+    Value: !If
+      - CreateNewVpc
+      - !Ref SubnetFsx1
+      - !Ref ExistingSubnetFsx1Id
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-SubnetFsx1Id'
+
+  SubnetFsx2Id:
+    Description: FSx subnet AZ2
+    Value: !If
+      - CreateNewVpc
+      - !Ref SubnetFsx2
+      - !Ref ExistingSubnetFsx2Id
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-SubnetFsx2Id'
+
+  SubnetSecurity1Id:
+    Condition: CreateNewVpc
+    Description: Security subnet AZ1
+    Value: !Ref SubnetSecurity1
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-SubnetSecurity1Id'
+
+  SubnetSecurity2Id:
+    Condition: CreateNewVpc
+    Description: Security subnet AZ2
+    Value: !Ref SubnetSecurity2
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-SubnetSecurity2Id'
+
+  SubnetCompute1Id:
+    Description: Compute subnet AZ1
+    Value: !If
+      - CreateNewVpc
+      - !Ref SubnetCompute1
+      - !Ref ExistingSubnetCompute1Id
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-SubnetCompute1Id'
+
+  SubnetCompute2Id:
+    Description: Compute subnet AZ2
+    Value: !If
+      - CreateNewVpc
+      - !Ref SubnetCompute2
+      - !Ref ExistingSubnetCompute2Id
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-SubnetCompute2Id'
+
+  SgFsxId:
+    Description: Security Group for FSx for ONTAP
+    Value: !If
+      - CreateNewVpc
+      - !Ref SgFsx
+      - !Ref ExistingSgFsxId
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-SgFsxId'
+
+  SgClientId:
+    Condition: CreateNewVpc
+    Description: Security Group for NFS/SMB client workstations
+    Value: !Ref SgClient
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-SgClientId'
+
+  SgVscanId:
+    Condition: CreateNewVpc
+    Description: Security Group for Vscan Server
+    Value: !Ref SgVscan
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-SgVscanId'
+
+  SgDeepInstinctId:
+    Condition: CreateNewVpc
+    Description: Security Group for Deep Instinct Agent
+    Value: !Ref SgDeepInstinct
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-SgDeepInstinctId'
+
+  SgLambdaId:
+    Description: Security Group for Lambda Functions
+    Value: !If
+      - CreateNewVpc
+      - !Ref SgLambda
+      - !Ref ExistingSgLambdaId
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-SgLambdaId'
+
+  NatGatewayId:
+    Condition: CreateNatGateway
+    Description: NAT Gateway ID (only when enabled with new VPC)
+    Value: !Ref NatGateway
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-NatGatewayId'
+
+  ActiveDirectoryId:
+    Description: Active Directory ID (for SVM AD join)
+    Value: !Ref ExistingActiveDirectoryId
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-ActiveDirectoryId'

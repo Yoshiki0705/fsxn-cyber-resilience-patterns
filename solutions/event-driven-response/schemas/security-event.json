@@ -1,0 +1,64 @@
+{
+  "title": "FSx for ONTAP Cyber Resilience Security Event",
+  "type": "object",
+  "required": [
+    "source",
+    "detail-type",
+    "detail"
+  ],
+  "properties": {
+    "source": {
+      "type": "string",
+      "enum": [
+        "fsxn.cyber-resilience.fpolicy",
+        "fsxn.cyber-resilience.arp",
+        "fsxn.cyber-resilience.scanner"
+      ]
+    },
+    "detail-type": {
+      "type": "string",
+      "enum": [
+        "FileEvent",
+        "MalwareDetected",
+        "RansomwareDetected",
+        "SuspiciousActivity"
+      ]
+    },
+    "detail": {
+      "type": "object",
+      "required": [
+        "fileSystemId",
+        "svmId",
+        "volumeId",
+        "timestamp"
+      ],
+      "properties": {
+        "fileSystemId": {
+          "type": "string"
+        },
+        "svmId": {
+          "type": "string"
+        },
+        "volumeId": {
+          "type": "string"
+        },
+        "filePath": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "verdict": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

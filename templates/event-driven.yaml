@@ -1,0 +1,658 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  FSx for ONTAP Cyber Resilience - Event-Driven Response Stack.
+  SQS queue, EventBridge custom bus, Step Functions workflows,
+  Lambda functions, and SNS notification topics.
+
+# -------------------------------------------------------------------
+# Parameters
+# -------------------------------------------------------------------
+Parameters:
+  ProjectName:
+    Type: String
+    Default: fsxn-cyber-resilience
+    Description: Project name.
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - production
+
+  NotificationEmail:
+    Type: String
+    Default: ''
+    Description: Email address for security alert notifications (optional).
+
+# -------------------------------------------------------------------
+# Conditions
+# -------------------------------------------------------------------
+Conditions:
+  HasNotificationEmail: !Not [!Equals [!Ref NotificationEmail, '']]
+
+# -------------------------------------------------------------------
+# Resources
+# -------------------------------------------------------------------
+Resources:
+
+  # ---------------------------------------------------------------
+  # SQS - Event ingestion queue (buffer between FPolicy and EventBridge)
+  # ---------------------------------------------------------------
+  SecurityEventQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-security-events-${Environment}'
+      VisibilityTimeout: 300
+      MessageRetentionPeriod: 1209600
+      KmsMasterKeyId: alias/aws/sqs
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt SecurityEventDlq.Arn
+        maxReceiveCount: 3
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: event-driven
+
+  SecurityEventDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-security-events-dlq-${Environment}'
+      MessageRetentionPeriod: 1209600
+      KmsMasterKeyId: alias/aws/sqs
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: event-driven
+
+  # ---------------------------------------------------------------
+  # EventBridge - Custom event bus for security events
+  # ---------------------------------------------------------------
+  SecurityEventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: !Sub '${ProjectName}-security-${Environment}'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Rule: Route malware detection events to quarantine workflow
+  RuleQuarantine:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ProjectName}-quarantine-${Environment}'
+      EventBusName: !Ref SecurityEventBus
+      State: ENABLED
+      EventPattern:
+        source:
+          - 'fsxn.cyber-resilience.fpolicy'
+          - 'fsxn.cyber-resilience.arp'
+        detail-type:
+          - 'MalwareDetected'
+          - 'RansomwareDetected'
+      Targets:
+        - Id: QuarantineWorkflow
+          Arn: !Ref QuarantineStateMachine
+          RoleArn: !GetAtt EventBridgeToStepFunctionsRole.Arn
+
+  # Rule: Route all security events to notification
+  RuleNotification:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ProjectName}-notify-${Environment}'
+      EventBusName: !Ref SecurityEventBus
+      State: ENABLED
+      EventPattern:
+        source:
+          - prefix: 'fsxn.cyber-resilience'
+      Targets:
+        - Id: NotificationTopic
+          Arn: !Ref SecurityAlertTopic
+
+  # ---------------------------------------------------------------
+  # SNS - Security alert notifications
+  # ---------------------------------------------------------------
+  SecurityAlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${ProjectName}-security-alerts-${Environment}'
+      KmsMasterKeyId: alias/aws/sns
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  SecurityAlertEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasNotificationEmail
+    Properties:
+      TopicArn: !Ref SecurityAlertTopic
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+
+  # ---------------------------------------------------------------
+  # Step Functions - Quarantine Workflow
+  # ---------------------------------------------------------------
+  QuarantineStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub '${ProjectName}-quarantine-${Environment}'
+      StateMachineType: STANDARD
+      RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      TracingConfiguration:
+        Enabled: true
+      LoggingConfiguration:
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt StepFunctionsLogGroup.Arn
+        IncludeExecutionData: true
+        Level: ALL
+      DefinitionString: !Sub |
+        {
+          "Comment": "Quarantine workflow: isolate compromised volume, snapshot, notify",
+          "StartAt": "CreateForensicSnapshot",
+          "States": {
+            "CreateForensicSnapshot": {
+              "Type": "Task",
+              "Resource": "arn:${AWS::Partition}:states:::aws-sdk:fsx:createSnapshot",
+              "Parameters": {
+                "Name.$": "States.Format('forensic-{}', $.detail.timestamp)",
+                "VolumeId.$": "$.detail.volumeId"
+              },
+              "ResultPath": "$.snapshot",
+              "Next": "RestrictExportPolicy",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "NotifyFailure"
+                }
+              ]
+            },
+            "RestrictExportPolicy": {
+              "Type": "Task",
+              "Resource": "${QuarantineLambda.Arn}",
+              "Parameters": {
+                "action": "restrict_export_policy",
+                "volumeId.$": "$.detail.volumeId",
+                "svmId.$": "$.detail.svmId"
+              },
+              "ResultPath": "$.quarantine",
+              "Next": "SendAlert",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "NotifyFailure"
+                }
+              ]
+            },
+            "SendAlert": {
+              "Type": "Task",
+              "Resource": "arn:${AWS::Partition}:states:::sns:publish",
+              "Parameters": {
+                "TopicArn": "${SecurityAlertTopic}",
+                "Subject": "CRITICAL: Security Event - Quarantine Executed",
+                "Message.$": "States.Format('Volume {} has been quarantined. Snapshot: {}. Trigger: {}', $.detail.volumeId, $.snapshot.Snapshot.SnapshotId, $.detail-type)"
+              },
+              "Next": "WaitForApproval"
+            },
+            "WaitForApproval": {
+              "Type": "Task",
+              "Resource": "arn:${AWS::Partition}:states:::sqs:sendMessage.waitForTaskToken",
+              "Parameters": {
+                "QueueUrl": "${ApprovalQueue}",
+                "MessageBody": {
+                  "taskToken.$": "$$.Task.Token",
+                  "event.$": "$"
+                }
+              },
+              "TimeoutSeconds": 86400,
+              "Next": "ApprovalDecision",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.Timeout"],
+                  "Next": "EscalateTimeout"
+                }
+              ]
+            },
+            "ApprovalDecision": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.approved",
+                  "BooleanEquals": true,
+                  "Next": "RestoreAccess"
+                }
+              ],
+              "Default": "CreateFlexClone"
+            },
+            "RestoreAccess": {
+              "Type": "Task",
+              "Resource": "${QuarantineLambda.Arn}",
+              "Parameters": {
+                "action": "restore_export_policy",
+                "volumeId.$": "$.detail.volumeId",
+                "svmId.$": "$.detail.svmId"
+              },
+              "End": true
+            },
+            "CreateFlexClone": {
+              "Type": "Task",
+              "Resource": "${QuarantineLambda.Arn}",
+              "Parameters": {
+                "action": "create_forensic_clone",
+                "volumeId.$": "$.detail.volumeId",
+                "snapshotId.$": "$.snapshot.Snapshot.SnapshotId"
+              },
+              "End": true
+            },
+            "NotifyFailure": {
+              "Type": "Task",
+              "Resource": "arn:${AWS::Partition}:states:::sns:publish",
+              "Parameters": {
+                "TopicArn": "${SecurityAlertTopic}",
+                "Subject": "ERROR: Quarantine Workflow Failed",
+                "Message.$": "States.Format('Quarantine workflow failed for volume {}. Manual intervention required.', $.detail.volumeId)"
+              },
+              "End": true
+            },
+            "EscalateTimeout": {
+              "Type": "Task",
+              "Resource": "arn:${AWS::Partition}:states:::sns:publish",
+              "Parameters": {
+                "TopicArn": "${SecurityAlertTopic}",
+                "Subject": "ESCALATION: Approval Timeout - Quarantined Volume",
+                "Message": "Quarantine approval timed out after 24 hours. Volume remains quarantined."
+              },
+              "End": true
+            }
+          }
+        }
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: event-driven
+
+  # ---------------------------------------------------------------
+  # SQS - Approval queue (human-in-the-loop)
+  # ---------------------------------------------------------------
+  ApprovalQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-approval-${Environment}'
+      VisibilityTimeout: 900
+      MessageRetentionPeriod: 345600
+      KmsMasterKeyId: alias/aws/sqs
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ---------------------------------------------------------------
+  # Lambda - Quarantine actions (ONTAP REST API calls)
+  # ---------------------------------------------------------------
+  QuarantineLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-quarantine-action-${Environment}'
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 300
+      MemorySize: 256
+      Architectures:
+        - arm64
+      Role: !GetAtt QuarantineLambdaRole.Arn
+      Environment:
+        Variables:
+          FSX_SECRET_ARN: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ProjectName}-fsxadmin-*'
+          ENVIRONMENT: !Ref Environment
+      VpcConfig:
+        SecurityGroupIds:
+          - !ImportValue
+            Fn::Sub: '${ProjectName}-${Environment}-SgLambdaId'
+        SubnetIds:
+          - !ImportValue
+            Fn::Sub: '${ProjectName}-${Environment}-SubnetCompute1Id'
+          - !ImportValue
+            Fn::Sub: '${ProjectName}-${Environment}-SubnetCompute2Id'
+      Code:
+        ZipFile: |
+          """Quarantine action Lambda - ONTAP REST API operations.
+          
+          Actions:
+          - restrict_export_policy: Block NFS/SMB access to quarantined volume
+          - restore_export_policy: Re-enable access after investigation
+          - create_forensic_clone: Create read-only FlexClone for forensics
+          """
+          from __future__ import annotations
+          import json
+          import logging
+          import os
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def handler(event, context):
+              """Route to appropriate action handler."""
+              action = event.get('action', '')
+              logger.info(f"Quarantine action: {action}, event: {json.dumps(event)}")
+              
+              # Placeholder - will be implemented with ONTAP REST API calls
+              # See docs/ontap-native/fpolicy-configuration.md for API patterns
+              
+              if action == 'restrict_export_policy':
+                  return {"status": "quarantined", "volumeId": event.get("volumeId")}
+              elif action == 'restore_export_policy':
+                  return {"status": "restored", "volumeId": event.get("volumeId")}
+              elif action == 'create_forensic_clone':
+                  return {"status": "cloned", "volumeId": event.get("volumeId")}
+              else:
+                  raise ValueError(f"Unknown action: {action}")
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: event-driven
+
+  # ---------------------------------------------------------------
+  # Lambda - Event transformer (FPolicy → EventBridge)
+  # ---------------------------------------------------------------
+  EventTransformerLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-event-transformer-${Environment}'
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 30
+      MemorySize: 128
+      Architectures:
+        - arm64
+      Role: !GetAtt EventTransformerLambdaRole.Arn
+      Environment:
+        Variables:
+          EVENT_BUS_NAME: !Ref SecurityEventBus
+          ENVIRONMENT: !Ref Environment
+      Code:
+        ZipFile: |
+          """Event transformer: SQS (FPolicy events) → EventBridge.
+          
+          Transforms raw FPolicy/ARP events into structured EventBridge events.
+          """
+          from __future__ import annotations
+          import json
+          import logging
+          import os
+          import boto3
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+          events_client = boto3.client('events')
+
+          def handler(event, context):
+              """Process SQS messages and forward to EventBridge."""
+              event_bus = os.environ['EVENT_BUS_NAME']
+              entries = []
+              
+              for record in event.get('Records', []):
+                  body = json.loads(record['body'])
+                  
+                  # Transform to EventBridge event format
+                  entry = {
+                      'Source': f"fsxn.cyber-resilience.{body.get('source', 'fpolicy')}",
+                      'DetailType': body.get('detail_type', 'FileEvent'),
+                      'Detail': json.dumps(body.get('detail', body)),
+                      'EventBusName': event_bus,
+                  }
+                  entries.append(entry)
+              
+              if entries:
+                  response = events_client.put_events(Entries=entries)
+                  logger.info(f"Published {len(entries)} events, failures: {response.get('FailedEntryCount', 0)}")
+              
+              return {'statusCode': 200, 'processed': len(entries)}
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: event-driven
+
+  # SQS → Lambda event source mapping
+  EventTransformerMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt SecurityEventQueue.Arn
+      FunctionName: !Ref EventTransformerLambda
+      BatchSize: 10
+      MaximumBatchingWindowInSeconds: 5
+      Enabled: true
+
+  # ---------------------------------------------------------------
+  # CloudWatch Log Group for Step Functions
+  # ---------------------------------------------------------------
+  StepFunctionsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/stepfunctions/${ProjectName}-quarantine-${Environment}'
+      RetentionInDays: 90
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ---------------------------------------------------------------
+  # DLQ Alarm
+  # ---------------------------------------------------------------
+  DlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-dlq-messages-${Environment}'
+      AlarmDescription: Messages in security event DLQ indicate processing failures
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt SecurityEventDlq.QueueName
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref SecurityAlertTopic
+      TreatMissingData: notBreaching
+
+  # ---------------------------------------------------------------
+  # IAM Roles
+  # ---------------------------------------------------------------
+
+  # EventBridge → Step Functions
+  EventBridgeToStepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-eb-to-sfn-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: InvokeStepFunctions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'states:StartExecution'
+                Resource: !Ref QuarantineStateMachine
+
+  # Step Functions execution role
+  StepFunctionsExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-sfn-exec-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: StepFunctionsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'lambda:InvokeFunction'
+                Resource:
+                  - !GetAtt QuarantineLambda.Arn
+              - Effect: Allow
+                Action:
+                  - 'sns:Publish'
+                Resource:
+                  - !Ref SecurityAlertTopic
+              - Effect: Allow
+                Action:
+                  - 'sqs:SendMessage'
+                Resource:
+                  - !GetAtt ApprovalQueue.Arn
+              - Effect: Allow
+                Action:
+                  - 'fsx:CreateSnapshot'
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    'aws:RequestedRegion': !Ref 'AWS::Region'
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogDelivery'
+                  - 'logs:GetLogDelivery'
+                  - 'logs:UpdateLogDelivery'
+                  - 'logs:DeleteLogDelivery'
+                  - 'logs:ListLogDeliveries'
+                  - 'logs:PutResourcePolicy'
+                  - 'logs:DescribeResourcePolicies'
+                  - 'logs:DescribeLogGroups'
+                Resource: '*'
+
+  # Quarantine Lambda role
+  QuarantineLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-quarantine-lambda-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+      Policies:
+        - PolicyName: QuarantinePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:GetSecretValue'
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ProjectName}-fsxadmin-*'
+              - Effect: Allow
+                Action:
+                  - 'fsx:CreateSnapshot'
+                  - 'fsx:CreateVolume'
+                  - 'fsx:DescribeVolumes'
+                  - 'fsx:DescribeFileSystems'
+                  - 'fsx:DescribeStorageVirtualMachines'
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    'aws:RequestedRegion': !Ref 'AWS::Region'
+
+  # Event Transformer Lambda role
+  EventTransformerLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-event-transformer-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: EventTransformerPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'sqs:ReceiveMessage'
+                  - 'sqs:DeleteMessage'
+                  - 'sqs:GetQueueAttributes'
+                Resource:
+                  - !GetAtt SecurityEventQueue.Arn
+              - Effect: Allow
+                Action:
+                  - 'events:PutEvents'
+                Resource:
+                  - !GetAtt SecurityEventBus.Arn
+
+# -------------------------------------------------------------------
+# Outputs
+# -------------------------------------------------------------------
+Outputs:
+  SecurityEventQueueUrl:
+    Description: SQS Queue URL for security events
+    Value: !Ref SecurityEventQueue
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-SecurityEventQueueUrl'
+
+  SecurityEventQueueArn:
+    Description: SQS Queue ARN
+    Value: !GetAtt SecurityEventQueue.Arn
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-SecurityEventQueueArn'
+
+  SecurityEventBusName:
+    Description: EventBridge custom bus name
+    Value: !Ref SecurityEventBus
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-SecurityEventBusName'
+
+  SecurityAlertTopicArn:
+    Description: SNS topic for security alerts
+    Value: !Ref SecurityAlertTopic
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-SecurityAlertTopicArn'
+
+  QuarantineStateMachineArn:
+    Description: Quarantine workflow state machine ARN
+    Value: !Ref QuarantineStateMachine
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-QuarantineStateMachineArn'

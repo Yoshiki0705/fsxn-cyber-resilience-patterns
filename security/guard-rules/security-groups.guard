@@ -1,0 +1,21 @@
+# CloudFormation Guard Rules - Security Groups
+# Validates security best practices for the Cyber Resilience project.
+
+# Rule: Security Groups must not allow unrestricted SSH ingress
+rule deny_unrestricted_ssh when AWS::EC2::SecurityGroupIngress {
+  FromPort != 22 OR
+  CidrIp != "0.0.0.0/0"
+}
+
+# Rule: Security Groups must not allow unrestricted ingress on all ports
+rule deny_all_ports_ingress when AWS::EC2::SecurityGroupIngress {
+  FromPort != 0 OR
+  ToPort != 65535 OR
+  CidrIp != "0.0.0.0/0"
+}
+
+# Rule: Security Groups must have a description
+rule sg_must_have_description when AWS::EC2::SecurityGroup {
+  Properties.GroupDescription EXISTS
+  Properties.GroupDescription != ""
+}

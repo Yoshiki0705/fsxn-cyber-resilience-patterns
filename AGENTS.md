@@ -14,20 +14,20 @@ FSx for ONTAP Cyber Resilience Patterns — multi-layered security reference arc
 ## Core Commands
 
 ```bash
-# Lint
+# Lint (CloudFormation templates)
 make lint
 
-# Test
+# Test (Python Lambda + template validation)
 make test
 
-# Security scan
+# Security scan (cfn-guard + gitleaks)
 make security
 
-# CDK synth
-npx cdk synth
+# Validate template
+make validate
 
 # Deploy (requires AWS credentials)
-npx cdk deploy
+make deploy ENV=dev
 ```
 
 ## Coding Conventions
@@ -39,16 +39,19 @@ npx cdk deploy
 - `from __future__ import annotations` at top
 - Use `logging`, never `print()` in handlers
 
-### TypeScript (CDK)
-- AWS CDK v2
-- Strict TypeScript
-- Constructs follow L2/L3 patterns
+### CloudFormation (YAML)
+- Templates in `templates/` directory
+- Parameters in `parameters/` (per environment)
+- cfn-lint for syntax validation
+- cfn-guard for security/compliance rules
 - All resources tagged: `Project`, `Layer`, `Component`
+- Use `!Sub`, `!Ref`, `Fn::ImportValue` for cross-stack references
+- Custom Resources (Lambda-backed) for ONTAP REST API calls
 
 ### Naming
 - Directories: kebab-case
 - Python modules: snake_case
-- CDK constructs/resources: PascalCase
+- CloudFormation resource logical IDs: PascalCase
 - Environment variables: UPPER_SNAKE_CASE
 
 ## Security Layers (Architecture)
@@ -84,9 +87,10 @@ This project compares multiple security technologies. Always:
 
 ## Testing
 
-- Framework: pytest + hypothesis
+- Framework: pytest + hypothesis (Python Lambda functions)
 - Coverage target: 80%
-- CDK: snapshot tests + fine-grained assertions
+- CloudFormation: cfn-lint validation + cfn-guard compliance checks
+- Template tests: pytest with cfn-lint programmatic API
 - Integration tests: tagged `e2e-*`, excluded from CI
 
 ## Documentation

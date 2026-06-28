@@ -34,7 +34,63 @@ This repository provides reference architectures and deployable patterns for pro
 
 ## Getting Started
 
-> Coming soon — Phase 0 (architecture design) in progress.
+### Prerequisites
+
+- AWS Account with permissions to create VPC, FSx, Lambda, Step Functions, SQS, EventBridge
+- AWS CLI v2 configured
+- Python 3.12+ (for cfn-lint, tests, Lambda development)
+- make (for running project commands)
+
+### Local Development (no AWS credentials required)
+
+```bash
+# Clone the repository
+git clone https://github.com/Yoshiki0705/fsxn-cyber-resilience-patterns.git
+cd fsxn-cyber-resilience-patterns
+
+# Install development dependencies
+python3 -m pip install -r requirements-dev.txt
+
+# Run linting (validates CloudFormation templates)
+make lint
+
+# Run tests (no AWS credentials needed)
+make test
+```
+
+### Deployment (requires AWS credentials)
+
+```bash
+# Deploy network stack to dev environment
+make deploy ENV=dev
+
+# Validate templates against AWS API
+make validate
+```
+
+See [docs/architecture/overview.md](docs/architecture/overview.md) for the full architecture diagram.
+
+## Why FSx for ONTAP for Cyber Resilience?
+
+This project uses Amazon FSx for NetApp ONTAP as the demonstration platform because it provides unique storage-native security primitives (ARP, FPolicy, SnapLock, Tamperproof Snapshots, Multi-Admin Verification) that enable defense-in-depth at the storage layer — capabilities not available in general-purpose file or block storage.
+
+**However, the defense-in-depth principles and event-driven response patterns in this project are broadly applicable.** Organizations using other storage services can adapt the concepts:
+
+| This project demonstrates | Principle applies to |
+|---------------------------|---------------------|
+| ONTAP ARP (behavioral detection) | Any anomaly detection at the data layer |
+| FPolicy → EventBridge | Any event-driven security automation |
+| Vscan/ICAP integration | Any inline file scanning architecture |
+| SnapLock (WORM) | Any immutable storage for evidence preservation |
+| Step Functions quarantine | Any automated incident response workflow |
+
+AWS-native alternatives for file-level security include:
+- **Amazon GuardDuty Malware Protection** — agentless scanning for EBS, S3, ECS/EKS
+- **AWS Backup** + **Vault Lock** — immutable backup retention
+- **Amazon Macie** — data classification and sensitive data discovery
+- **Amazon Inspector** — vulnerability scanning for compute workloads
+
+This project focuses on the *file storage layer* (NAS workloads via NFS/SMB) where the above services have limited coverage, making FSx for ONTAP's native capabilities particularly relevant.
 
 ## Related Projects
 
@@ -54,6 +110,8 @@ This project follows supply-chain security best practices:
 
 MIT
 
-## Author
+## Author & Disclosure
 
-Yoshiki Fujiwara (藤原 善基) — NetApp CSA, AWS Community Builder (Storage)
+**Yoshiki Fujiwara** (藤原 善基) — NetApp Cloud Solutions Architect, AWS Community Builder (Storage)
+
+> **Transparency note**: The author is employed by NetApp as a Cloud Solutions Architect specializing in Amazon FSx for NetApp ONTAP. This project is a personal community contribution and does not represent official NetApp or AWS product documentation. The security layer comparison is written with vendor neutrality in mind — all technologies are presented with symmetric trade-off descriptions, and the choice between options should be based on the reader's specific requirements and context. Feedback and alternative perspectives are welcome via Issues.

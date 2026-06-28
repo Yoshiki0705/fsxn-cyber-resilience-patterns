@@ -1,0 +1,503 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  FSx for ONTAP Cyber Resilience - Storage Stack.
+  FSx for ONTAP file system (Multi-AZ), SVMs, volumes, and KMS encryption.
+  Imports network outputs via cross-stack references.
+
+# -------------------------------------------------------------------
+# Parameters
+# -------------------------------------------------------------------
+Parameters:
+  ProjectName:
+    Type: String
+    Default: fsxn-cyber-resilience
+    Description: Project name used for resource naming and tagging.
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - production
+    Description: Deployment environment.
+
+  DeploymentType:
+    Type: String
+    Default: MULTI_AZ_1
+    AllowedValues:
+      - SINGLE_AZ_1
+      - SINGLE_AZ_2
+      - MULTI_AZ_1
+      - MULTI_AZ_2
+    Description: >
+      FSx for ONTAP deployment type.
+      Use SINGLE_AZ_1/2 for dev (cost saving), MULTI_AZ_1/2 for staging/production.
+
+  ThroughputCapacity:
+    Type: Number
+    Default: 128
+    AllowedValues:
+      - 128
+      - 256
+      - 512
+      - 1024
+      - 2048
+      - 4096
+    Description: >
+      Throughput capacity in MB/s.
+      128 for dev/PoC, 256-512 for staging, 512+ for production.
+
+  StorageCapacity:
+    Type: Number
+    Default: 1024
+    MinValue: 1024
+    MaxValue: 65536
+    Description: >
+      SSD storage capacity in GiB (1024 - 65536).
+      1024 for dev, 2048-5120 for staging, 10240+ for production.
+
+  FsxAdminPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    MaxLength: 50
+    Description: >
+      Password for the fsxadmin user. Must be 8-50 characters.
+      In production, use Secrets Manager rotation instead.
+
+  ActiveDirectoryId:
+    Type: String
+    Default: ''
+    Description: >
+      AWS Managed Microsoft AD directory ID for SMB/CIFS access.
+      Leave empty to skip AD join (NFS-only or manual join later).
+
+  ProductionVolumeSize:
+    Type: Number
+    Default: 100
+    MinValue: 20
+    MaxValue: 104857600
+    Description: Production volume size in MiB (minimum 20 MiB).
+
+  AuditVolumeSize:
+    Type: Number
+    Default: 50
+    MinValue: 20
+    MaxValue: 104857600
+    Description: Audit log volume size in MiB.
+
+  SnaplockVolumeSize:
+    Type: Number
+    Default: 50
+    MinValue: 20
+    MaxValue: 104857600
+    Description: SnapLock compliance volume size in MiB.
+
+  # -----------------------------------------------------------------
+  # Bring Your Own FSx for ONTAP (existing resource parameters)
+  # -----------------------------------------------------------------
+  UseExistingFileSystem:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: >
+      Set to 'true' to use an existing FSx for ONTAP file system
+      instead of creating a new one. When true, ExistingFileSystemId
+      and ExistingManagementEndpoint are required.
+
+  ExistingFileSystemId:
+    Type: String
+    Default: ''
+    Description: >
+      Existing FSx for ONTAP file system ID (e.g., fs-0123456789abcdef0).
+      Required when UseExistingFileSystem is 'true'.
+
+  ExistingManagementEndpoint:
+    Type: String
+    Default: ''
+    Description: >
+      Management endpoint DNS of the existing FSx for ONTAP
+      (e.g., management.fs-0123456789abcdef0.fsx.ap-northeast-1.amazonaws.com).
+      Required when UseExistingFileSystem is 'true'.
+
+  ExistingSvmId:
+    Type: String
+    Default: ''
+    Description: >
+      Existing production SVM ID (e.g., svm-0123456789abcdef0).
+      Optional — if empty, a new SVM will be created on the existing file system.
+
+  ExistingVolumeId:
+    Type: String
+    Default: ''
+    Description: >
+      Existing production volume ID (e.g., fsvol-0123456789abcdef0).
+      Optional — used for ARP/FPolicy configuration on existing volumes.
+
+# -------------------------------------------------------------------
+# Conditions
+# -------------------------------------------------------------------
+Conditions:
+  HasActiveDirectory: !Not [!Equals [!Ref ActiveDirectoryId, '']]
+  CreateNewFileSystem: !Equals [!Ref UseExistingFileSystem, 'false']
+  CreateNewSvm: !Or
+    - !Condition CreateNewFileSystem
+    - !Equals [!Ref ExistingSvmId, '']
+  IsMultiAz: !Or
+    - !Equals [!Ref DeploymentType, 'MULTI_AZ_1']
+    - !Equals [!Ref DeploymentType, 'MULTI_AZ_2']
+
+# -------------------------------------------------------------------
+# Resources
+# -------------------------------------------------------------------
+Resources:
+
+  # ---------------------------------------------------------------
+  # KMS Key for FSx for ONTAP encryption at rest
+  # ---------------------------------------------------------------
+  FsxKmsKey:
+    Type: AWS::KMS::Key
+    Condition: CreateNewFileSystem
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: !Sub 'KMS key for FSx for ONTAP encryption - ${ProjectName}-${Environment}'
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EnableRootAccountAccess
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: AllowFsxServiceUsage
+            Effect: Allow
+            Principal:
+              Service: fsx.amazonaws.com
+            Action:
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey*'
+              - 'kms:DescribeKey'
+              - 'kms:CreateGrant'
+            Resource: '*'
+            Condition:
+              StringEquals:
+                'kms:CallerAccount': !Ref 'AWS::AccountId'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-fsx-kms-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  FsxKmsKeyAlias:
+    Type: AWS::KMS::Alias
+    Condition: CreateNewFileSystem
+    Properties:
+      AliasName: !Sub 'alias/${ProjectName}-fsx-${Environment}'
+      TargetKeyId: !Ref FsxKmsKey
+
+  # ---------------------------------------------------------------
+  # FSx for ONTAP File System
+  # ---------------------------------------------------------------
+  FsxFileSystem:
+    Type: AWS::FSx::FileSystem
+    Condition: CreateNewFileSystem
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      FileSystemType: ONTAP
+      StorageCapacity: !Ref StorageCapacity
+      StorageType: SSD
+      SubnetIds:
+        - !ImportValue
+          Fn::Sub: '${ProjectName}-${Environment}-SubnetFsx1Id'
+        - !If
+          - IsMultiAz
+          - !ImportValue
+            Fn::Sub: '${ProjectName}-${Environment}-SubnetFsx2Id'
+          - !Ref 'AWS::NoValue'
+      SecurityGroupIds:
+        - !ImportValue
+          Fn::Sub: '${ProjectName}-${Environment}-SgFsxId'
+      KmsKeyId: !GetAtt FsxKmsKey.Arn
+      OntapConfiguration:
+        DeploymentType: !Ref DeploymentType
+        AutomaticBackupRetentionDays: 7
+        DailyAutomaticBackupStartTime: '03:00'
+        WeeklyMaintenanceStartTime: '7:04:00'
+        ThroughputCapacity: !Ref ThroughputCapacity
+        FsxAdminPassword: !Ref FsxAdminPassword
+        PreferredSubnetId: !ImportValue
+          Fn::Sub: '${ProjectName}-${Environment}-SubnetFsx1Id'
+        DiskIopsConfiguration:
+          Mode: AUTOMATIC
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-fsx-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: storage-native
+        - Key: Component
+          Value: fsxn-filesystem
+
+  # ---------------------------------------------------------------
+  # SVM - Production (business workloads)
+  # ---------------------------------------------------------------
+  SvmProduction:
+    Type: AWS::FSx::StorageVirtualMachine
+    Condition: CreateNewSvm
+    Properties:
+      FileSystemId: !If
+        - CreateNewFileSystem
+        - !Ref FsxFileSystem
+        - !Ref ExistingFileSystemId
+      Name: !Sub 'svm-prod-${Environment}'
+      RootVolumeSecurityStyle: MIXED
+      ActiveDirectoryConfiguration: !If
+        - HasActiveDirectory
+        - NetBiosName: !Sub 'FSXPROD${Environment}'
+          SelfManagedActiveDirectoryConfiguration:
+            DomainName: !Ref 'AWS::NoValue'
+        - !Ref 'AWS::NoValue'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-svm-production-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: storage-native
+        - Key: Component
+          Value: svm-production
+
+  # ---------------------------------------------------------------
+  # SVM - Audit (isolated SVM for audit logs)
+  # ---------------------------------------------------------------
+  SvmAudit:
+    Type: AWS::FSx::StorageVirtualMachine
+    Condition: CreateNewSvm
+    Properties:
+      FileSystemId: !If
+        - CreateNewFileSystem
+        - !Ref FsxFileSystem
+        - !Ref ExistingFileSystemId
+      Name: !Sub 'svm-audit-${Environment}'
+      RootVolumeSecurityStyle: UNIX
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-svm-audit-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: observability
+        - Key: Component
+          Value: svm-audit
+
+  # ---------------------------------------------------------------
+  # Volume - Production data
+  # ---------------------------------------------------------------
+  VolumeProduction:
+    Type: AWS::FSx::Volume
+    Condition: CreateNewSvm
+    Properties:
+      Name: !Sub 'vol_prod_${Environment}'
+      VolumeType: ONTAP
+      OntapConfiguration:
+        JunctionPath: /production
+        SizeInMegabytes: !Ref ProductionVolumeSize
+        StorageVirtualMachineId: !Ref SvmProduction
+        StorageEfficiencyEnabled: 'true'
+        TieringPolicy:
+          CoolingPeriod: 31
+          Name: AUTO
+        SecurityStyle: MIXED
+        SnapshotPolicy: default
+        CopyTagsToBackups: 'true'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-vol-production-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: storage-native
+        - Key: Component
+          Value: volume-production
+        - Key: DataClassification
+          Value: internal
+
+  # ---------------------------------------------------------------
+  # Volume - Audit logs
+  # ---------------------------------------------------------------
+  VolumeAudit:
+    Type: AWS::FSx::Volume
+    Condition: CreateNewSvm
+    Properties:
+      Name: !Sub 'vol_audit_${Environment}'
+      VolumeType: ONTAP
+      OntapConfiguration:
+        JunctionPath: /audit
+        SizeInMegabytes: !Ref AuditVolumeSize
+        StorageVirtualMachineId: !Ref SvmAudit
+        StorageEfficiencyEnabled: 'true'
+        TieringPolicy:
+          CoolingPeriod: 14
+          Name: AUTO
+        SecurityStyle: UNIX
+        SnapshotPolicy: default
+        CopyTagsToBackups: 'true'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-vol-audit-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: observability
+        - Key: Component
+          Value: volume-audit
+        - Key: DataClassification
+          Value: confidential
+
+  # ---------------------------------------------------------------
+  # Volume - SnapLock Compliance (immutable evidence retention)
+  # ---------------------------------------------------------------
+  VolumeSnaplock:
+    Type: AWS::FSx::Volume
+    Condition: CreateNewSvm
+    Properties:
+      Name: !Sub 'vol_snaplock_${Environment}'
+      VolumeType: ONTAP
+      OntapConfiguration:
+        JunctionPath: /compliance
+        SizeInMegabytes: !Ref SnaplockVolumeSize
+        StorageVirtualMachineId: !Ref SvmAudit
+        StorageEfficiencyEnabled: 'true'
+        TieringPolicy:
+          Name: NONE
+        SecurityStyle: UNIX
+        SnapshotPolicy: none
+        CopyTagsToBackups: 'true'
+        SnaplockConfiguration:
+          SnaplockType: ENTERPRISE
+          AutocommitPeriod:
+            Type: DAYS
+            Value: 1
+          PrivilegedDelete: PERMANENTLY_DISABLED
+          RetentionPeriod:
+            DefaultRetention:
+              Type: DAYS
+              Value: 90
+            MinimumRetention:
+              Type: DAYS
+              Value: 1
+            MaximumRetention:
+              Type: YEARS
+              Value: 7
+          VolumeAppendModeEnabled: 'true'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-vol-snaplock-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: data-protection
+        - Key: Component
+          Value: volume-snaplock
+        - Key: DataClassification
+          Value: confidential
+
+# -------------------------------------------------------------------
+# Outputs (for cross-stack references)
+# -------------------------------------------------------------------
+Outputs:
+  FileSystemId:
+    Description: FSx for ONTAP File System ID (new or existing)
+    Value: !If
+      - CreateNewFileSystem
+      - !Ref FsxFileSystem
+      - !Ref ExistingFileSystemId
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-FileSystemId'
+
+  ManagementEndpoint:
+    Description: FSx for ONTAP management endpoint
+    Value: !If
+      - CreateNewFileSystem
+      - !GetAtt FsxFileSystem.DNSName
+      - !Ref ExistingManagementEndpoint
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-ManagementEndpoint'
+
+  SvmProductionId:
+    Condition: CreateNewSvm
+    Description: Production SVM ID
+    Value: !Ref SvmProduction
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-SvmProductionId'
+
+  SvmAuditId:
+    Condition: CreateNewSvm
+    Description: Audit SVM ID
+    Value: !Ref SvmAudit
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-SvmAuditId'
+
+  VolumeProductionId:
+    Condition: CreateNewSvm
+    Description: Production volume ID
+    Value: !Ref VolumeProduction
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-VolumeProductionId'
+
+  VolumeAuditId:
+    Condition: CreateNewSvm
+    Description: Audit volume ID
+    Value: !Ref VolumeAudit
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-VolumeAuditId'
+
+  VolumeSnaplockId:
+    Condition: CreateNewSvm
+    Description: SnapLock compliance volume ID
+    Value: !Ref VolumeSnaplock
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-VolumeSnaplockId'
+
+  KmsKeyArn:
+    Condition: CreateNewFileSystem
+    Description: KMS Key ARN for FSx encryption
+    Value: !GetAtt FsxKmsKey.Arn
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-FsxKmsKeyArn'
+
+  IsExistingFileSystem:
+    Description: Whether an existing file system is being used
+    Value: !Ref UseExistingFileSystem
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-IsExistingFileSystem'
+
+  ExistingVolumeIdOutput:
+    Description: Existing volume ID passed in (for downstream ONTAP API config)
+    Value: !Ref ExistingVolumeId
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-ExistingVolumeId'
