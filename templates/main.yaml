@@ -1,0 +1,91 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  FSx for ONTAP Cyber Resilience Patterns - Root Stack.
+  Orchestrates nested stacks for network, storage, scanning, event-driven response,
+  observability, and data protection layers.
+
+# -------------------------------------------------------------------
+# Parameters
+# -------------------------------------------------------------------
+Parameters:
+  ProjectName:
+    Type: String
+    Default: fsxn-cyber-resilience
+    Description: Project name used for resource naming and tagging.
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - production
+    Description: Deployment environment.
+
+  TemplatesBucketName:
+    Type: String
+    Description: S3 bucket containing nested stack templates.
+
+  TemplatesPrefix:
+    Type: String
+    Default: templates/
+    Description: S3 key prefix for nested stack templates.
+
+  AvailabilityZone1:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: First availability zone.
+
+  AvailabilityZone2:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: Second availability zone.
+
+# -------------------------------------------------------------------
+# Resources
+# -------------------------------------------------------------------
+Resources:
+
+  # Network Stack
+  NetworkStack:
+    Type: AWS::CloudFormation::Stack
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      TemplateURL: !Sub 'https://${TemplatesBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}network.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        AvailabilityZone1: !Ref AvailabilityZone1
+        AvailabilityZone2: !Ref AvailabilityZone2
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: network
+
+  # Storage Stack (placeholder - to be implemented in Task 3)
+  # StorageStack:
+  #   Type: AWS::CloudFormation::Stack
+  #   DependsOn: NetworkStack
+  #   Properties:
+  #     TemplateURL: !Sub 'https://${TemplatesBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}storage.yaml'
+
+  # Event-Driven Stack (placeholder - to be implemented in Task 5)
+  # EventDrivenStack:
+  #   Type: AWS::CloudFormation::Stack
+  #   DependsOn: NetworkStack
+  #   Properties:
+  #     TemplateURL: !Sub 'https://${TemplatesBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}event-driven.yaml'
+
+# -------------------------------------------------------------------
+# Outputs
+# -------------------------------------------------------------------
+Outputs:
+  NetworkStackId:
+    Description: Network nested stack ID
+    Value: !Ref NetworkStack
+
+  VpcId:
+    Description: VPC ID from Network Stack
+    Value: !GetAtt NetworkStack.Outputs.VpcId

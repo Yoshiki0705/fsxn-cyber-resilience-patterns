@@ -39,7 +39,7 @@ FSx for ONTAP Cyber Resilience Patterns — multi-layered security reference arc
 ## Code Standards
 
 - Python 3.12 target (ARM64 Lambda)
-- AWS CDK (TypeScript) for infrastructure
+- AWS CloudFormation (YAML) for infrastructure — templates in `templates/`, validated with cfn-lint + cfn-guard
 - Type hints on all functions, Google-style docstrings
 - Tests: pytest + hypothesis
 - CI: GitHub Actions with SHA-pinned actions, gitleaks, zizmor, OpenSSF Scorecard

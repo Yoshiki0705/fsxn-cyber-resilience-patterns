@@ -1,0 +1,18 @@
+# CloudFormation Guard Rules - Encryption
+# Ensures all applicable resources use encryption.
+
+# Rule: S3 buckets must have encryption enabled
+rule s3_bucket_encryption when AWS::S3::Bucket {
+  Properties.BucketEncryption EXISTS
+}
+
+# Rule: SQS queues must use KMS encryption
+rule sqs_kms_encryption when AWS::SQS::Queue {
+  Properties.KmsMasterKeyId EXISTS OR
+  Properties.SqsManagedSseEnabled == true
+}
+
+# Rule: SNS topics should use KMS encryption
+rule sns_kms_encryption when AWS::SNS::Topic {
+  Properties.KmsMasterKeyId EXISTS
+}

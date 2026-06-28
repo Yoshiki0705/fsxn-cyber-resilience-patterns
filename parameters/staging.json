@@ -1,0 +1,30 @@
+[
+  {
+    "ParameterKey": "ProjectName",
+    "ParameterValue": "fsxn-cyber-resilience"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "staging"
+  },
+  {
+    "ParameterKey": "VpcCidr",
+    "ParameterValue": "10.0.0.0/16"
+  },
+  {
+    "ParameterKey": "AvailabilityZone1",
+    "ParameterValue": "ap-northeast-1a"
+  },
+  {
+    "ParameterKey": "AvailabilityZone2",
+    "ParameterValue": "ap-northeast-1c"
+  },
+  {
+    "ParameterKey": "EnableNatGateway",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "ClientCidr",
+    "ParameterValue": "10.0.0.0/16"
+  }
+]

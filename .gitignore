@@ -46,3 +46,6 @@ htmlcov/
 
 # Private notes (review provenance, persona details)
 .private/
+
+# Internal specs (not for public consumption)
+.kiro/specs/

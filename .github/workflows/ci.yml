@@ -1,0 +1,85 @@
+name: CI - Lint & Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'templates/**'
+      - 'solutions/**'
+      - 'tests/**'
+      - 'security/guard-rules/**'
+      - 'requirements*.txt'
+      - '.cfnlintrc'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'templates/**'
+      - 'solutions/**'
+      - 'tests/**'
+      - 'security/guard-rules/**'
+      - 'requirements*.txt'
+      - '.cfnlintrc'
+      - '.github/workflows/ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.12']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run cfn-lint
+        run: cfn-lint templates/*.yaml
+
+      - name: Run cfn-guard
+        uses: aws-cloudformation/cloudformation-guard@d34a64e8bc0660203e3b4120793ed60c1de5761b # v0.0.11
+        with:
+          rules: 'security/guard-rules/'
+          data: 'templates/network.yaml'
+          show-summary: 'fail'
+
+      - name: Run ruff (Python linter)
+        run: |
+          ruff check solutions/ tests/ --output-format=github || true
+
+      - name: Run Bandit (Python SAST)
+        run: |
+          pip install bandit
+          bandit -r solutions/ -f json -o bandit-results.json || true
+
+      - name: Run pip-audit (dependency vulnerabilities)
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt --output json || true
+
+      - name: Run pytest
+        run: |
+          pytest tests/ -v --tb=short --junitxml=test-results.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: test-results
+          path: test-results.xml
