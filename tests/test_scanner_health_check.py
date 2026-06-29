@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from unittest.mock import MagicMock, patch
 
-
 os.environ["SCANNER_IPS"] = "10.0.3.10,10.0.4.10"
 os.environ["ENVIRONMENT"] = "dev"
 os.environ["PROJECT_NAME"] = "fsxn-cyber-resilience"

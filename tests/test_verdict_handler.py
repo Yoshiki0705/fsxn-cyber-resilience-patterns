@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
-
 from verdict_handler import _map_detail_type, _map_severity, _parse_verdict, handler
 
 

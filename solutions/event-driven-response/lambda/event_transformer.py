@@ -95,9 +95,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             logger.error(f"EventBridge batch publish failed: {e}")
             failures += len(batch)
 
-    logger.info(
-        f"Published: {published}, Failed: {failures}, Parse errors: {len(failed_ids)}"
-    )
+    logger.info(f"Published: {published}, Failed: {failures}, Parse errors: {len(failed_ids)}")
 
     # Return batch item failures for SQS partial batch response
     result: dict[str, Any] = {

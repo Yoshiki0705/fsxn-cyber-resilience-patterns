@@ -42,9 +42,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     published_count = 0
     errors: list[str] = []
 
-    records = (
-        event.get("records", [event]) if "records" not in event else event["records"]
-    )
+    records = event.get("records", [event]) if "records" not in event else event["records"]
 
     for record in records:
         try:
@@ -117,11 +115,7 @@ def _parse_verdict(record: dict[str, Any]) -> dict[str, Any] | None:
     # Nested body format
     if "body" in record:
         try:
-            return (
-                json.loads(record["body"])
-                if isinstance(record["body"], str)
-                else record["body"]
-            )
+            return json.loads(record["body"]) if isinstance(record["body"], str) else record["body"]
         except (json.JSONDecodeError, TypeError):
             return None
 

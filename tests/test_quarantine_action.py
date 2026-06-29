@@ -10,12 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-os.environ["FSX_SECRET_ARN"] = (
-    "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:test-secret"
-)
-os.environ["FSX_MANAGEMENT_ENDPOINT"] = (
-    "management.fs-0123456789abcdef0.fsx.ap-northeast-1.amazonaws.com"
-)
+os.environ["FSX_SECRET_ARN"] = "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:test-secret"
+os.environ["FSX_MANAGEMENT_ENDPOINT"] = "management.fs-0123456789abcdef0.fsx.ap-northeast-1.amazonaws.com"
 os.environ["ENVIRONMENT"] = "dev"
 
 

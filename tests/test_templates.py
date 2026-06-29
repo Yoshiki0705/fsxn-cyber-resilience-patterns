@@ -107,9 +107,7 @@ class TestNetworkTemplate:
     def test_vpc_exists(self, template: dict) -> None:
         """Network template must define a VPC."""
         resources = template["Resources"]
-        vpc_resources = [
-            k for k, v in resources.items() if v["Type"] == "AWS::EC2::VPC"
-        ]
+        vpc_resources = [k for k, v in resources.items() if v["Type"] == "AWS::EC2::VPC"]
         assert len(vpc_resources) == 1
 
     def test_subnets_multi_az(self, template: dict) -> None:
@@ -123,9 +121,7 @@ class TestNetworkTemplate:
     def test_security_groups_exist(self, template: dict) -> None:
         """Network template must define required security groups."""
         resources = template["Resources"]
-        sgs = [
-            k for k, v in resources.items() if v["Type"] == "AWS::EC2::SecurityGroup"
-        ]
+        sgs = [k for k, v in resources.items() if v["Type"] == "AWS::EC2::SecurityGroup"]
         # sg-fsx, sg-client, sg-vscan, sg-deep-instinct, sg-lambda, sg-vpc-endpoints = 6
         assert len(sgs) >= 6
 
@@ -138,9 +134,7 @@ class TestNetworkTemplate:
     def test_vpc_endpoints_exist(self, template: dict) -> None:
         """Network template must define VPC endpoints."""
         resources = template["Resources"]
-        endpoints = [
-            k for k, v in resources.items() if v["Type"] == "AWS::EC2::VPCEndpoint"
-        ]
+        endpoints = [k for k, v in resources.items() if v["Type"] == "AWS::EC2::VPCEndpoint"]
         # S3 Gateway + SQS + SecretsManager + KMS + STS = 5
         assert len(endpoints) == 5
 
@@ -199,9 +193,7 @@ class TestNetworkTemplate:
                 if resource.get("Condition"):
                     continue
                 props = resource.get("Properties", {})
-                assert (
-                    props.get("MapPublicIpOnLaunch", False) is False
-                ), f"{name} must not assign public IPs"
+                assert props.get("MapPublicIpOnLaunch", False) is False, f"{name} must not assign public IPs"
 
     def test_all_resources_tagged(self, template: dict) -> None:
         """All taggable resources should have at minimum a Name tag."""
@@ -217,9 +209,7 @@ class TestNetworkTemplate:
                 props = resource.get("Properties", {})
                 tags = props.get("Tags", [])
                 tag_keys = [t["Key"] for t in tags]
-                assert (
-                    "Name" in tag_keys
-                ), f"{name} ({resource['Type']}) must have a Name tag"
+                assert "Name" in tag_keys, f"{name} ({resource['Type']}) must have a Name tag"
 
     def test_enable_nat_gateway_parameter(self, template: dict) -> None:
         """Template must have EnableNatGateway parameter with default false."""
@@ -258,8 +248,6 @@ class TestParameterFiles:
         path = PARAMETERS_DIR / "dev.json"
         with open(path) as f:
             params = json.load(f)
-        env_param = next(
-            (p for p in params if p["ParameterKey"] == "Environment"), None
-        )
+        env_param = next((p for p in params if p["ParameterKey"] == "Environment"), None)
         assert env_param is not None
         assert env_param["ParameterValue"] == "dev"

@@ -9,7 +9,6 @@ import json
 import os
 from unittest.mock import MagicMock, patch
 
-
 # Set environment variables before importing handler
 os.environ["EVENT_BUS_NAME"] = "test-security-bus"
 os.environ["ENVIRONMENT"] = "dev"
@@ -138,10 +137,7 @@ class TestTransformEvent:
 
         detail = json.loads(entry["Detail"])
         assert detail["severity"] == "CRITICAL"
-        assert (
-            detail["metadata"]["snapshot_name"]
-            == "anti_ransomware_backup.2026-06-25_1030"
-        )
+        assert detail["metadata"]["snapshot_name"] == "anti_ransomware_backup.2026-06-25_1030"
         assert detail["metadata"]["affected_files_count"] == 150
 
 

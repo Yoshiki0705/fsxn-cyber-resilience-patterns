@@ -52,16 +52,12 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     request_type = event.get("RequestType", "")
     properties = event.get("ResourceProperties", {})
-    physical_resource_id = event.get(
-        "PhysicalResourceId", f"ontap-security-config-{int(time.time())}"
-    )
+    physical_resource_id = event.get("PhysicalResourceId", f"ontap-security-config-{int(time.time())}")
 
     try:
         if request_type == "Create":
             result = _handle_create(properties)
-            physical_resource_id = result.get(
-                "physical_resource_id", physical_resource_id
-            )
+            physical_resource_id = result.get("physical_resource_id", physical_resource_id)
         elif request_type == "Update":
             result = _handle_update(properties, event.get("OldResourceProperties", {}))
         elif request_type == "Delete":
@@ -120,9 +116,7 @@ def _handle_create(properties: dict[str, Any]) -> dict[str, Any]:
         results["mav_configured"] = True
         results["fpolicy_configured"] = True
 
-    results["physical_resource_id"] = (
-        f"ontap-security-{svm_uuid[:8]}-{int(time.time())}"
-    )
+    results["physical_resource_id"] = f"ontap-security-{svm_uuid[:8]}-{int(time.time())}"
     return results
 
 
@@ -179,13 +173,9 @@ def _handle_delete(properties: dict[str, Any]) -> dict[str, Any]:
         policy_name = fpolicy_config.get("policy_name", "")
         if policy_name:
             try:
-                client.enable_fpolicy(
-                    svm_uuid, policy_name, priority=0
-                )  # priority 0 = disabled
+                client.enable_fpolicy(svm_uuid, policy_name, priority=0)  # priority 0 = disabled
                 results["fpolicy_disabled"] = True
-                logger.info(
-                    f"FPolicy policy '{policy_name}' disabled on SVM {svm_uuid}"
-                )
+                logger.info(f"FPolicy policy '{policy_name}' disabled on SVM {svm_uuid}")
             except Exception as e:
                 logger.warning(f"Failed to disable FPolicy: {e}")
 
@@ -217,9 +207,7 @@ def _configure_fpolicy(
     port = config.get("port", 1344)
     engine_type = config.get("engine_type", "synchronous")
     event_name = config.get("event_name", "cyber-resilience-event")
-    file_operations = config.get(
-        "file_operations", {"write": True, "create": True, "rename": True}
-    )
+    file_operations = config.get("file_operations", {"write": True, "create": True, "rename": True})
     policy_name = config.get("policy_name", "cyber-resilience-policy")
     is_mandatory = config.get("is_mandatory", False)
 
@@ -377,17 +365,13 @@ def _send_response(
     """
     response_url = event.get("ResponseURL", "")
     if not response_url:
-        logger.warning(
-            "No ResponseURL — skipping CFn response (likely a test invocation)"
-        )
+        logger.warning("No ResponseURL — skipping CFn response (likely a test invocation)")
         return
 
     response_body = json.dumps(
         {
             "Status": status,
-            "Reason": data.get(
-                "Error", f"See CloudWatch Log Stream: {context.log_stream_name}"
-            ),
+            "Reason": data.get("Error", f"See CloudWatch Log Stream: {context.log_stream_name}"),
             "PhysicalResourceId": physical_resource_id,
             "StackId": event.get("StackId", ""),
             "RequestId": event.get("RequestId", ""),

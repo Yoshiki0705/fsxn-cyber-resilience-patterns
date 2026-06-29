@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 
-
 from dashboard_config import NAMESPACE, generate_dashboard_body
 
 
