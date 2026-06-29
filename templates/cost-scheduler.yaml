@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  FSx for ONTAP Cyber Resilience - Cost Scheduler (Phase 2).
+  Stops scanner EC2 instances during non-business hours in non-production environments.
+
+# -------------------------------------------------------------------
+# Parameters
+# -------------------------------------------------------------------
+Parameters:
+  ProjectName:
+    Type: String
+    Default: fsxn-cyber-resilience
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, production]
+    Description: Only deploys for non-production environments.
+
+  StopSchedule:
+    Type: String
+    Default: 'cron(0 11 ? * MON-FRI *)'
+    Description: >
+      Stop schedule in UTC (default: 20:00 JST = 11:00 UTC).
+      EventBridge Scheduler cron expression.
+
+  StartSchedule:
+    Type: String
+    Default: 'cron(0 23 ? * SUN-THU *)'
+    Description: >
+      Start schedule in UTC (default: 08:00 JST = 23:00 UTC previous day).
+      EventBridge Scheduler cron expression.
+
+# -------------------------------------------------------------------
+# Conditions
+# -------------------------------------------------------------------
+Conditions:
+  IsNonProduction: !Not [!Equals [!Ref Environment, 'production']]
+
+# -------------------------------------------------------------------
+# Resources
+# -------------------------------------------------------------------
+Resources:
+
+  SchedulerRole:
+    Type: AWS::IAM::Role
+    Condition: IsNonProduction
+    Properties:
+      RoleName: !Sub '${ProjectName}-cost-scheduler-role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: SchedulerEC2Policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:StopInstances
+                  - ec2:StartInstances
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    'aws:ResourceTag/Project': !Ref ProjectName
+                    'aws:ResourceTag/Layer': scanning
+                    'aws:ResourceTag/Environment': !Ref Environment
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+  StopScannersSchedule:
+    Type: AWS::Scheduler::Schedule
+    Condition: IsNonProduction
+    Properties:
+      Name: !Sub '${ProjectName}-stop-scanners-${Environment}'
+      Description: Stop scanner instances at end of business day (cost savings)
+      ScheduleExpression: !Ref StopSchedule
+      ScheduleExpressionTimezone: Asia/Tokyo
+      FlexibleTimeWindow:
+        Mode: 'OFF'
+      Target:
+        Arn: !Sub 'arn:${AWS::Partition}:scheduler:::aws-sdk:ec2:stopInstances'
+        RoleArn: !GetAtt SchedulerRole.Arn
+        Input: !Sub |
+          {
+            "InstanceIds": []
+          }
+
+  StartScannersSchedule:
+    Type: AWS::Scheduler::Schedule
+    Condition: IsNonProduction
+    Properties:
+      Name: !Sub '${ProjectName}-start-scanners-${Environment}'
+      Description: Start scanner instances at beginning of business day
+      ScheduleExpression: !Ref StartSchedule
+      ScheduleExpressionTimezone: Asia/Tokyo
+      FlexibleTimeWindow:
+        Mode: 'OFF'
+      Target:
+        Arn: !Sub 'arn:${AWS::Partition}:scheduler:::aws-sdk:ec2:startInstances'
+        RoleArn: !GetAtt SchedulerRole.Arn
+        Input: !Sub |
+          {
+            "InstanceIds": []
+          }
+
+# -------------------------------------------------------------------
+# Outputs
+# -------------------------------------------------------------------
+Outputs:
+  SchedulerRoleArn:
+    Condition: IsNonProduction
+    Description: Cost scheduler IAM role ARN
+    Value: !GetAtt SchedulerRole.Arn
+
+  StopScheduleName:
+    Condition: IsNonProduction
+    Description: Stop schedule name
+    Value: !Ref StopScannersSchedule
+
+  StartScheduleName:
+    Condition: IsNonProduction
+    Description: Start schedule name
+    Value: !Ref StartScannersSchedule
