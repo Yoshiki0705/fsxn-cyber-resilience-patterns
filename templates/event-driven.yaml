@@ -282,7 +282,7 @@ Resources:
               "Parameters": {
                 "TopicArn": "${SecurityAlertTopic}",
                 "Subject": "ERROR: Quarantine Workflow Failed",
-                "Message.$": "States.Format('Quarantine workflow failed for volume {}. Manual intervention required.', $.detail.volumeId)"
+                "Message": "Quarantine workflow failed. Manual intervention required. Check Step Functions execution history for details."
               },
               "End": true
             },
