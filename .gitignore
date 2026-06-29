@@ -48,4 +48,4 @@ htmlcov/
 .private/
 
 # Internal specs (not for public consumption)
-.kiro/specs/
+# .kiro/specs/ — tracked for this project (shared specs)
