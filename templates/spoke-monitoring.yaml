@@ -1,0 +1,82 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  FSx for ONTAP Cyber Resilience - Spoke Monitoring (Phase 3).
+  Deploys cross-account EventBridge forwarding rule in workload accounts.
+  Designed for StackSet deployment across an AWS Organization.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: fsxn-cyber-resilience
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, production]
+
+  HubAccountId:
+    Type: String
+    Description: AWS account ID of the central security monitoring hub.
+    AllowedPattern: '^\d{12}$'
+
+  HubRegion:
+    Type: String
+    Default: ap-northeast-1
+    Description: Region of the hub EventBridge bus.
+
+  HubEventBusName:
+    Type: String
+    Default: fsxn-cyber-resilience-hub
+    Description: EventBridge bus name in the hub account.
+
+Resources:
+
+  # IAM Role for cross-account EventBridge forwarding
+  CrossAccountEventRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-spoke-event-role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: PutEventsToHub
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: events:PutEvents
+                Resource: !Sub 'arn:${AWS::Partition}:events:${HubRegion}:${HubAccountId}:event-bus/${HubEventBusName}'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Layer
+          Value: observability
+
+  # EventBridge rule: forward all security events to hub
+  SpokeToHubRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ProjectName}-spoke-to-hub-${Environment}'
+      EventBusName: default
+      State: ENABLED
+      EventPattern:
+        source:
+          - prefix: 'fsxn.cyber-resilience'
+      Targets:
+        - Id: HubEventBus
+          Arn: !Sub 'arn:${AWS::Partition}:events:${HubRegion}:${HubAccountId}:event-bus/${HubEventBusName}'
+          RoleArn: !GetAtt CrossAccountEventRole.Arn
+
+Outputs:
+  CrossAccountRoleArn:
+    Description: IAM role ARN for cross-account event forwarding
+    Value: !GetAtt CrossAccountEventRole.Arn
+
+  SpokeRuleName:
+    Description: EventBridge rule forwarding to hub
+    Value: !Ref SpokeToHubRule
