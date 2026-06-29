@@ -50,3 +50,6 @@ htmlcov/
 # Internal specs (not for public consumption)
 # .kiro/ — private local configuration (never publish)
 .kiro/
+
+# Lambda packaging build artifacts
+lambda-packages/
