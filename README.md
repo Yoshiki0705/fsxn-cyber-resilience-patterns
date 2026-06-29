@@ -105,6 +105,7 @@ aws cloudformation deploy --template-file templates/spoke-monitoring.yaml ...
 ```
 
 See [docs/architecture/overview.md](docs/architecture/overview.md) for the full architecture diagram.
+See [docs/quickstart-deployment.md](docs/quickstart-deployment.md) for detailed deployment guide with troubleshooting.
 See [docs/deployment-guide-existing-fsxn.md](docs/deployment-guide-existing-fsxn.md) for existing environment setup.
 
 ## Why FSx for ONTAP for Cyber Resilience?
