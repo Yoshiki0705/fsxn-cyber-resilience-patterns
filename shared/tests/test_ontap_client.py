@@ -9,7 +9,6 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from ontap_client import OntapApiError, OntapClient
 
 
@@ -105,9 +104,7 @@ class TestVolumeOperations:
     def test_get_volume(self, client):
         mock_response = MagicMock()
         mock_response.status = 200
-        mock_response.data = json.dumps(
-            {"name": "vol1", "uuid": "uuid-1", "state": "online"}
-        ).encode()
+        mock_response.data = json.dumps({"name": "vol1", "uuid": "uuid-1", "state": "online"}).encode()
 
         client._http.request = MagicMock(return_value=mock_response)
         volume = client.get_volume("uuid-1")
@@ -323,9 +320,7 @@ class TestExportPolicyOperations:
             }
         ).encode()
 
-        client._http.request = MagicMock(
-            side_effect=[rules_response, delete_response, post_response]
-        )
+        client._http.request = MagicMock(side_effect=[rules_response, delete_response, post_response])
         result = client.restore_export_policy(policy_id=1, client_match="10.0.0.0/16")
 
         assert result["rw_rule"] == ["sys"]
@@ -341,9 +336,7 @@ class TestErrorHandling:
     def test_api_error_on_4xx(self, client):
         mock_response = MagicMock()
         mock_response.status = 404
-        mock_response.data = json.dumps(
-            {"error": {"message": "Volume not found"}}
-        ).encode()
+        mock_response.data = json.dumps({"error": {"message": "Volume not found"}}).encode()
 
         client._http.request = MagicMock(return_value=mock_response)
 
@@ -356,9 +349,7 @@ class TestErrorHandling:
     def test_api_error_on_5xx(self, client):
         mock_response = MagicMock()
         mock_response.status = 500
-        mock_response.data = json.dumps(
-            {"error": {"message": "Internal error"}}
-        ).encode()
+        mock_response.data = json.dumps({"error": {"message": "Internal error"}}).encode()
 
         client._http.request = MagicMock(return_value=mock_response)
 
@@ -387,13 +378,9 @@ class TestErrorHandling:
         # Polling response: success
         success_response = MagicMock()
         success_response.status = 200
-        success_response.data = json.dumps(
-            {"state": "success", "result": "done"}
-        ).encode()
+        success_response.data = json.dumps({"state": "success", "result": "done"}).encode()
 
-        client._http.request = MagicMock(
-            side_effect=[async_response, running_response, success_response]
-        )
+        client._http.request = MagicMock(side_effect=[async_response, running_response, success_response])
 
         with patch("ontap_client.time.sleep"):
             result = client.create_snapshot("vol-uuid", "snap-name")
@@ -453,9 +440,7 @@ class TestSvmOperations:
     def test_get_svm(self, client):
         mock_response = MagicMock()
         mock_response.status = 200
-        mock_response.data = json.dumps(
-            {"name": "svm-prod", "uuid": "svm-uuid-1", "state": "running"}
-        ).encode()
+        mock_response.data = json.dumps({"name": "svm-prod", "uuid": "svm-uuid-1", "state": "running"}).encode()
 
         client._http.request = MagicMock(return_value=mock_response)
         svm = client.get_svm("svm-uuid-1")

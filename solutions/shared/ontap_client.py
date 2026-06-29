@@ -137,9 +137,7 @@ class OntapClient:
 
         if response.status >= 400:
             error_data = json.loads(response.data.decode()) if response.data else {}
-            error_msg = error_data.get("error", {}).get(
-                "message", f"HTTP {response.status}"
-            )
+            error_msg = error_data.get("error", {}).get("message", f"HTTP {response.status}")
             raise OntapApiError(
                 status_code=response.status,
                 message=error_msg,
@@ -150,9 +148,7 @@ class OntapClient:
             return json.loads(response.data.decode())
         return {}
 
-    def _poll_job(
-        self, response: urllib3.HTTPResponse, poll_interval: int = 2
-    ) -> dict[str, Any]:
+    def _poll_job(self, response: urllib3.HTTPResponse, poll_interval: int = 2) -> dict[str, Any]:
         """Poll an async job until completion.
 
         Args:
@@ -186,9 +182,7 @@ class OntapClient:
                 error_msg = job_data.get("error", {}).get("message", "Job failed")
                 raise OntapApiError(status_code=500, message=error_msg, target=job_link)
 
-        raise OntapApiError(
-            status_code=408, message="Job polling timeout", target=job_link
-        )
+        raise OntapApiError(status_code=408, message="Job polling timeout", target=job_link)
 
     # ------------------------------------------------------------------
     # Volume operations
@@ -378,9 +372,7 @@ class OntapClient:
             },
         )
 
-    def enable_fpolicy(
-        self, svm_uuid: str, policy_name: str, priority: int = 1
-    ) -> dict[str, Any]:
+    def enable_fpolicy(self, svm_uuid: str, policy_name: str, priority: int = 1) -> dict[str, Any]:
         """Enable an FPolicy policy.
 
         Args:
@@ -401,9 +393,7 @@ class OntapClient:
     # Export Policy operations (for quarantine)
     # ------------------------------------------------------------------
 
-    def get_export_policy(
-        self, svm_uuid: str, policy_name: str = "default"
-    ) -> dict[str, Any]:
+    def get_export_policy(self, svm_uuid: str, policy_name: str = "default") -> dict[str, Any]:
         """Get export policy details."""
         result = self._request(
             "GET",
@@ -422,9 +412,7 @@ class OntapClient:
             Updated policy rules.
         """
         # Get current rules
-        rules = self._request(
-            "GET", f"/protocols/nfs/export-policies/{policy_id}/rules"
-        )
+        rules = self._request("GET", f"/protocols/nfs/export-policies/{policy_id}/rules")
 
         # Delete all existing rules
         for rule in rules.get("records", []):
@@ -463,9 +451,7 @@ class OntapClient:
             Updated policy rules.
         """
         # Remove quarantine rule
-        rules = self._request(
-            "GET", f"/protocols/nfs/export-policies/{policy_id}/rules"
-        )
+        rules = self._request("GET", f"/protocols/nfs/export-policies/{policy_id}/rules")
         for rule in rules.get("records", []):
             rule_index = rule.get("index")
             if rule_index:

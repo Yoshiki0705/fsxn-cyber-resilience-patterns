@@ -18,6 +18,8 @@ sys.path.insert(0, str(PROJECT_ROOT / "solutions" / "ontap-native" / "lambda"))
 sys.path.insert(0, str(PROJECT_ROOT / "solutions" / "observability"))
 sys.path.insert(0, str(PROJECT_ROOT / "solutions" / "deep-instinct"))
 sys.path.insert(0, str(PROJECT_ROOT / "solutions" / "trendai-file-security"))
+sys.path.insert(0, str(PROJECT_ROOT / "solutions" / "siem"))
+sys.path.insert(0, str(PROJECT_ROOT / "solutions" / "compliance"))
 
 
 @pytest.fixture

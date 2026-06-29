@@ -88,9 +88,7 @@ class SecurityMetricsPublisher:
         """Record security events received from SQS."""
         self.put_metric("SecurityEventsReceived", count)
 
-    def record_malware_detected(
-        self, scanner_name: str = "unknown", count: int = 1
-    ) -> None:
+    def record_malware_detected(self, scanner_name: str = "unknown", count: int = 1) -> None:
         """Record malware detection event."""
         self.put_metric(
             "MalwareDetected",

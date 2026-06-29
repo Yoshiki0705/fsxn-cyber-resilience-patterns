@@ -12,12 +12,10 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import event_transformer
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
-
-import event_transformer
-
 
 # --- Test Data ---
 
@@ -62,9 +60,7 @@ QUARANTINE_RULE_PATTERN = {
 @pytest.fixture(autouse=True)
 def patch_event_bus():
     """Patch module-level EVENT_BUS_NAME for all tests in this file."""
-    with patch.object(
-        event_transformer, "EVENT_BUS_NAME", "fsxn-cyber-resilience-security-dev"
-    ):
+    with patch.object(event_transformer, "EVENT_BUS_NAME", "fsxn-cyber-resilience-security-dev"):
         yield
 
 
@@ -204,9 +200,7 @@ class TestEventClassificationProperty:
     )
     @settings(max_examples=50)
     @patch.object(event_transformer, "events_client")
-    def test_all_valid_sources_produce_valid_eventbridge_source(
-        self, mock_events, source, event_type, verdict
-    ):
+    def test_all_valid_sources_produce_valid_eventbridge_source(self, mock_events, source, event_type, verdict):
         mock_events.put_events.return_value = {"FailedEntryCount": 0}
 
         raw_event = {

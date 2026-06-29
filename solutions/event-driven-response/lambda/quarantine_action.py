@@ -24,7 +24,6 @@ import sys
 import time
 from typing import Any
 
-
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
@@ -211,9 +210,7 @@ def _get_client(event: dict[str, Any]) -> Any:
     """Create ONTAP client from environment and event properties."""
     from ontap_client import OntapClient
 
-    management_endpoint = event.get("managementEndpoint") or os.environ.get(
-        "FSX_MANAGEMENT_ENDPOINT", ""
-    )
+    management_endpoint = event.get("managementEndpoint") or os.environ.get("FSX_MANAGEMENT_ENDPOINT", "")
     secret_arn = os.environ.get("FSX_SECRET_ARN", "")
 
     if not management_endpoint:

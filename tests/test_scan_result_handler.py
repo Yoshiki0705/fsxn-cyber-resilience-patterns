@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
-
 from scan_result_handler import (
     _classify_severity,
     _extract_body,
