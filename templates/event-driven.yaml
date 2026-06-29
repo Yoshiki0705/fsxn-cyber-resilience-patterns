@@ -26,6 +26,23 @@ Parameters:
     Default: ''
     Description: Email address for security alert notifications (optional).
 
+  LambdaArtifactBucket:
+    Type: String
+    Description: S3 bucket containing Lambda deployment packages.
+
+  LambdaArtifactPrefix:
+    Type: String
+    Default: lambda-packages
+    Description: S3 key prefix for Lambda zip packages.
+
+  EventTransformerS3Key:
+    Type: String
+    Description: S3 key for event-transformer Lambda zip (from package-lambdas.sh manifest).
+
+  QuarantineActionS3Key:
+    Type: String
+    Description: S3 key for quarantine-action Lambda zip (from package-lambdas.sh manifest).
+
 # -------------------------------------------------------------------
 # Conditions
 # -------------------------------------------------------------------
@@ -308,6 +325,64 @@ Resources:
           Value: !Ref Environment
 
   # ---------------------------------------------------------------
+  # SQS - Batch scan results (S3 AP TrendAI integration)
+  # ---------------------------------------------------------------
+  BatchScanResultQueue:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      QueueName: !Sub '${ProjectName}-batch-scan-results-${Environment}'
+      VisibilityTimeout: 300
+      MessageRetentionPeriod: 1209600
+      ReceiveMessageWaitTimeSeconds: 20
+      KmsMasterKeyId: alias/aws/sqs
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt BatchScanResultDlq.Arn
+        maxReceiveCount: 3
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: event-driven
+
+  BatchScanResultDlq:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      QueueName: !Sub '${ProjectName}-batch-scan-results-dlq-${Environment}'
+      MessageRetentionPeriod: 1209600
+      KmsMasterKeyId: alias/aws/sqs
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: event-driven
+
+  # SNS subscription policy allowing external scan result topics
+  BatchScanResultQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref BatchScanResultQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt BatchScanResultQueue.Arn
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub 'arn:${AWS::Partition}:sns:${AWS::Region}:*:*scan*'
+
+  # ---------------------------------------------------------------
   # Lambda - Quarantine actions (ONTAP REST API calls)
   # ---------------------------------------------------------------
   QuarantineLambda:
@@ -315,9 +390,10 @@ Resources:
     Properties:
       FunctionName: !Sub '${ProjectName}-quarantine-action-${Environment}'
       Runtime: python3.12
-      Handler: index.handler
+      Handler: quarantine_action.handler
       Timeout: 300
       MemorySize: 256
+      ReservedConcurrentExecutions: 10
       Architectures:
         - arm64
       Role: !GetAtt QuarantineLambdaRole.Arn
@@ -335,38 +411,8 @@ Resources:
           - !ImportValue
             Fn::Sub: '${ProjectName}-${Environment}-SubnetCompute2Id'
       Code:
-        ZipFile: |
-          """Quarantine action Lambda - ONTAP REST API operations.
-          
-          Actions:
-          - restrict_export_policy: Block NFS/SMB access to quarantined volume
-          - restore_export_policy: Re-enable access after investigation
-          - create_forensic_clone: Create read-only FlexClone for forensics
-          """
-          from __future__ import annotations
-          import json
-          import logging
-          import os
-
-          logger = logging.getLogger()
-          logger.setLevel(logging.INFO)
-
-          def handler(event, context):
-              """Route to appropriate action handler."""
-              action = event.get('action', '')
-              logger.info(f"Quarantine action: {action}, event: {json.dumps(event)}")
-              
-              # Placeholder - will be implemented with ONTAP REST API calls
-              # See docs/ontap-native/fpolicy-configuration.md for API patterns
-              
-              if action == 'restrict_export_policy':
-                  return {"status": "quarantined", "volumeId": event.get("volumeId")}
-              elif action == 'restore_export_policy':
-                  return {"status": "restored", "volumeId": event.get("volumeId")}
-              elif action == 'create_forensic_clone':
-                  return {"status": "cloned", "volumeId": event.get("volumeId")}
-              else:
-                  raise ValueError(f"Unknown action: {action}")
+        S3Bucket: !Ref LambdaArtifactBucket
+        S3Key: !Sub '${LambdaArtifactPrefix}/${QuarantineActionS3Key}'
       Tags:
         - Key: Project
           Value: !Ref ProjectName
@@ -383,9 +429,10 @@ Resources:
     Properties:
       FunctionName: !Sub '${ProjectName}-event-transformer-${Environment}'
       Runtime: python3.12
-      Handler: index.handler
+      Handler: event_transformer.handler
       Timeout: 30
       MemorySize: 128
+      ReservedConcurrentExecutions: 50
       Architectures:
         - arm64
       Role: !GetAtt EventTransformerLambdaRole.Arn
@@ -394,43 +441,8 @@ Resources:
           EVENT_BUS_NAME: !Ref SecurityEventBus
           ENVIRONMENT: !Ref Environment
       Code:
-        ZipFile: |
-          """Event transformer: SQS (FPolicy events) → EventBridge.
-          
-          Transforms raw FPolicy/ARP events into structured EventBridge events.
-          """
-          from __future__ import annotations
-          import json
-          import logging
-          import os
-          import boto3
-
-          logger = logging.getLogger()
-          logger.setLevel(logging.INFO)
-          events_client = boto3.client('events')
-
-          def handler(event, context):
-              """Process SQS messages and forward to EventBridge."""
-              event_bus = os.environ['EVENT_BUS_NAME']
-              entries = []
-              
-              for record in event.get('Records', []):
-                  body = json.loads(record['body'])
-                  
-                  # Transform to EventBridge event format
-                  entry = {
-                      'Source': f"fsxn.cyber-resilience.{body.get('source', 'fpolicy')}",
-                      'DetailType': body.get('detail_type', 'FileEvent'),
-                      'Detail': json.dumps(body.get('detail', body)),
-                      'EventBusName': event_bus,
-                  }
-                  entries.append(entry)
-              
-              if entries:
-                  response = events_client.put_events(Entries=entries)
-                  logger.info(f"Published {len(entries)} events, failures: {response.get('FailedEntryCount', 0)}")
-              
-              return {'statusCode': 200, 'processed': len(entries)}
+        S3Bucket: !Ref LambdaArtifactBucket
+        S3Key: !Sub '${LambdaArtifactPrefix}/${EventTransformerS3Key}'
       Tags:
         - Key: Project
           Value: !Ref ProjectName
@@ -447,6 +459,16 @@ Resources:
       FunctionName: !Ref EventTransformerLambda
       BatchSize: 10
       MaximumBatchingWindowInSeconds: 5
+      Enabled: true
+
+  # Batch scan results SQS → Event Transformer (same handler, different source)
+  BatchScanResultMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt BatchScanResultQueue.Arn
+      FunctionName: !Ref EventTransformerLambda
+      BatchSize: 10
+      MaximumBatchingWindowInSeconds: 30
       Enabled: true
 
   # ---------------------------------------------------------------
@@ -625,6 +647,7 @@ Resources:
                   - 'sqs:GetQueueAttributes'
                 Resource:
                   - !GetAtt SecurityEventQueue.Arn
+                  - !GetAtt BatchScanResultQueue.Arn
               - Effect: Allow
                 Action:
                   - 'events:PutEvents'
@@ -664,3 +687,15 @@ Outputs:
     Value: !Ref QuarantineStateMachine
     Export:
       Name: !Sub '${ProjectName}-${Environment}-QuarantineStateMachineArn'
+
+  BatchScanResultQueueUrl:
+    Description: SQS Queue URL for S3 AP batch scan results
+    Value: !Ref BatchScanResultQueue
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-BatchScanResultQueueUrl'
+
+  BatchScanResultQueueArn:
+    Description: SQS Queue ARN for batch scan results
+    Value: !GetAtt BatchScanResultQueue.Arn
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-BatchScanResultQueueArn'
