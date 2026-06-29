@@ -5,9 +5,10 @@
 #   ./scripts/deploy.sh [ENV] [STACK]
 #
 # Examples:
-#   ./scripts/deploy.sh dev              # Deploy all stacks to dev
-#   ./scripts/deploy.sh staging network  # Deploy only network stack to staging
-#   ./scripts/deploy.sh production       # Deploy all stacks to production (confirms)
+#   ./scripts/deploy.sh dev                # Deploy all stacks to dev
+#   ./scripts/deploy.sh dev network        # Deploy only network stack
+#   ./scripts/deploy.sh dev package        # Package Lambdas only
+#   ./scripts/deploy.sh production all     # Deploy all to production (confirms)
 
 set -euo pipefail
 
@@ -18,12 +19,16 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo "Usage: $0 [ENV] [STACK]"
     echo ""
     echo "  ENV    Target environment: dev | staging | production (default: dev)"
-    echo "  STACK  Stack to deploy: network | events | all (default: all)"
+    echo "  STACK  Stack to deploy (default: all):"
+    echo "           package       — Package Lambda functions only"
+    echo "           network       — Network stack (VPC, subnets, SGs)"
+    echo "           storage       — Storage stack (FSx for ONTAP, KMS)"
+    echo "           events        — Event-driven stack (SQS, EventBridge, Step Functions)"
+    echo "           scanning      — Scanning stack (EC2 scanners)"
+    echo "           observability — Observability stack (Dashboard, alarms)"
+    echo "           all           — All stacks in dependency order"
     echo ""
-    echo "Examples:"
-    echo "  $0                    # Deploy all stacks to dev"
-    echo "  $0 staging network   # Deploy network stack to staging"
-    echo "  $0 production        # Deploy all to production (requires confirmation)"
+    echo "  Deploy order: package → network → storage → events → scanning → observability"
     exit 0
 fi
 
@@ -73,7 +78,6 @@ check_prerequisites() {
         exit 1
     fi
 
-    # Verify credentials
     if ! aws sts get-caller-identity --region "$REGION" &>/dev/null; then
         log_error "AWS credentials not configured or expired."
         exit 1
@@ -94,12 +98,24 @@ lint_templates() {
     fi
 }
 
+wait_for_stack() {
+    local stack_name="$1"
+    log_info "Waiting for stack: $stack_name..."
+    if ! aws cloudformation wait stack-create-complete \
+        --stack-name "$stack_name" --region "$REGION" 2>/dev/null; then
+        # Try update-complete if create-complete fails (stack may already exist)
+        aws cloudformation wait stack-update-complete \
+            --stack-name "$stack_name" --region "$REGION" 2>/dev/null || true
+    fi
+}
+
 deploy_stack() {
     local stack_name="$1"
     local template="$2"
-    local params="${3:-}"
+    shift 2
+    local extra_params=("$@")
 
-    log_info "Deploying stack: $stack_name"
+    log_info "Deploying stack: $stack_name ($template)"
 
     local cmd=(
         aws cloudformation deploy
@@ -114,26 +130,84 @@ deploy_stack() {
             "ManagedBy=cloudformation"
     )
 
-    if [[ -n "$params" && -f "$PROJECT_DIR/parameters/$params" ]]; then
-        cmd+=(--parameter-overrides "file://$PROJECT_DIR/parameters/$params")
+    if [[ ${#extra_params[@]} -gt 0 ]]; then
+        cmd+=(--parameter-overrides "${extra_params[@]}")
     fi
 
-    "${cmd[@]}"
+    if ! "${cmd[@]}"; then
+        log_error "Stack deployment failed: $stack_name"
+        log_error "Check: aws cloudformation describe-stack-events --stack-name $stack_name --region $REGION"
+        exit 1
+    fi
+
     log_info "Stack $stack_name deployed successfully."
 }
 
-deploy_network() {
-    deploy_stack \
-        "${PROJECT_NAME}-network-${ENV}" \
-        "network.yaml" \
-        "${ENV}.json"
+package_lambdas() {
+    log_info "Packaging Lambda functions..."
+    "${SCRIPT_DIR}/package-lambdas.sh"
 }
 
-deploy_event_driven() {
-    deploy_stack \
-        "${PROJECT_NAME}-events-${ENV}" \
-        "event-driven.yaml" \
-        ""
+deploy_network() {
+    local params_file="$PROJECT_DIR/parameters/${ENV}.json"
+    if [[ -f "$params_file" ]]; then
+        deploy_stack "${PROJECT_NAME}-network-${ENV}" "network.yaml" \
+            "file://$params_file"
+    else
+        deploy_stack "${PROJECT_NAME}-network-${ENV}" "network.yaml"
+    fi
+}
+
+deploy_storage() {
+    deploy_stack "${PROJECT_NAME}-storage-${ENV}" "storage.yaml" \
+        "ProjectName=$PROJECT_NAME" "Environment=$ENV"
+}
+
+deploy_events() {
+    # Requires Lambda artifacts — check manifest exists
+    local manifest="$PROJECT_DIR/lambda-packages/manifest.json"
+    if [[ ! -f "$manifest" ]]; then
+        log_warn "Lambda packages not found. Running package step..."
+        package_lambdas
+    fi
+
+    local bucket="${LAMBDA_ARTIFACT_BUCKET:-}"
+    if [[ -z "$bucket" ]]; then
+        log_error "LAMBDA_ARTIFACT_BUCKET env var required for events stack deployment."
+        log_error "Set it to the S3 bucket containing Lambda packages."
+        exit 1
+    fi
+
+    deploy_stack "${PROJECT_NAME}-events-${ENV}" "event-driven.yaml" \
+        "ProjectName=$PROJECT_NAME" \
+        "Environment=$ENV" \
+        "LambdaArtifactBucket=$bucket" \
+        "LambdaArtifactPrefix=lambda-packages" \
+        "EventTransformerS3Key=$(python3 -c "import json; print(json.load(open('$manifest'))['event-transformer'])")" \
+        "QuarantineActionS3Key=$(python3 -c "import json; print(json.load(open('$manifest'))['quarantine-action'])")"
+}
+
+deploy_scanning() {
+    deploy_stack "${PROJECT_NAME}-scanning-${ENV}" "scanning.yaml" \
+        "ProjectName=$PROJECT_NAME" "Environment=$ENV"
+}
+
+deploy_observability() {
+    local sns_arn
+    sns_arn=$(aws cloudformation describe-stacks \
+        --stack-name "${PROJECT_NAME}-events-${ENV}" \
+        --region "$REGION" \
+        --query "Stacks[0].Outputs[?OutputKey=='SecurityAlertTopicArn'].OutputValue" \
+        --output text 2>/dev/null || echo "")
+
+    if [[ -z "$sns_arn" ]]; then
+        log_warn "SecurityAlertTopicArn not found (events stack may not be deployed)."
+        log_warn "Deploying observability without alarm actions."
+        sns_arn="arn:aws:sns:${REGION}:123456789012:placeholder"
+    fi
+
+    deploy_stack "${PROJECT_NAME}-observability-${ENV}" "observability.yaml" \
+        "ProjectName=$PROJECT_NAME" "Environment=$ENV" "SecurityAlertTopicArn=$sns_arn"
 }
 
 # -------------------------------------------------------------------
@@ -141,26 +215,48 @@ deploy_event_driven() {
 # -------------------------------------------------------------------
 validate_env
 confirm_production
-check_prerequisites
-lint_templates
+
+if [[ "$STACK" != "package" ]]; then
+    check_prerequisites
+    lint_templates
+fi
 
 case "$STACK" in
+    package)
+        package_lambdas
+        ;;
     network)
         deploy_network
         ;;
+    storage)
+        deploy_storage
+        ;;
     events|event-driven)
-        deploy_event_driven
+        deploy_events
+        ;;
+    scanning)
+        deploy_scanning
+        ;;
+    observability)
+        deploy_observability
         ;;
     all)
+        package_lambdas
         deploy_network
-        deploy_event_driven
+        wait_for_stack "${PROJECT_NAME}-network-${ENV}"
+        deploy_storage
+        wait_for_stack "${PROJECT_NAME}-storage-${ENV}"
+        deploy_events
+        wait_for_stack "${PROJECT_NAME}-events-${ENV}"
+        deploy_scanning
+        deploy_observability
         ;;
     *)
-        log_error "Unknown stack: $STACK (must be network|events|all)"
+        log_error "Unknown stack: $STACK"
+        log_error "Valid: package | network | storage | events | scanning | observability | all"
         exit 1
         ;;
 esac
 
 echo ""
 log_info "Deployment complete for $ENV ($STACK)."
-log_info "Check status: aws cloudformation describe-stacks --stack-name ${PROJECT_NAME}-network-${ENV} --region $REGION --query 'Stacks[0].StackStatus'"
