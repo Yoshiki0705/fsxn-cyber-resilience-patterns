@@ -1,0 +1,126 @@
+# Event-Driven Ransomware Response with AWS Step Functions
+
+> Automated quarantine, forensics, and recovery workflows triggered by file security events.
+
+## Introduction
+
+Third article in the series: the event-driven response layer that transforms detection events into automated containment actions in seconds, not hours.
+
+## The Event Pipeline
+
+```
+FPolicy/ARP Event → SQS Queue → Lambda (Transformer) → EventBridge
+    → Step Functions (Quarantine Workflow)
+        → Forensic Snapshot
+        → Export Policy Restriction (quarantine)
+        → SNS Alert
+        → Human Approval (24h timeout)
+        → Restore or FlexClone
+```
+
+## Why This Architecture?
+
+| Design Choice | Rationale |
+|---------------|-----------|
+| SQS as buffer | Decouples FPolicy from processing; handles burst events |
+| EventBridge for routing | Content-based filtering; multiple targets from one event |
+| Step Functions for orchestration | Visible state machine; built-in retry; human-in-the-loop |
+| Lambda for ONTAP API | VPC access to management endpoint; stateless |
+
+## The Quarantine Workflow (Step Functions ASL)
+
+Nine states handling the full incident lifecycle:
+
+1. **CreateForensicSnapshot** — Preserve evidence before any changes
+2. **RestrictExportPolicy** — Block NFS/SMB access to the volume
+3. **SendAlert** — SNS notification to security team
+4. **WaitForApproval** — SQS task token pattern (24h timeout)
+5. **ApprovalDecision** — Choice state: approved or rejected
+6. **RestoreAccess** — Re-enable export policy (false positive)
+7. **CreateFlexClone** — Read-only clone for forensics (confirmed attack)
+8. **NotifyFailure** — Error handling notification
+9. **EscalateTimeout** — 24h timeout escalation
+
+## The Human-in-the-Loop Pattern
+
+```python
+# Step Functions sends task token to SQS Approval Queue
+# Security team retrieves message, investigates, then:
+
+# Approve (restore access):
+aws stepfunctions send-task-success \
+  --task-token "<token>" \
+  --task-output '{"approved": true}'
+
+# Reject (create forensic clone):
+aws stepfunctions send-task-success \
+  --task-token "<token>" \
+  --task-output '{"approved": false}'
+```
+
+This pattern ensures automated speed for containment while maintaining human judgment for resolution.
+
+## Lambda: ONTAP REST API Integration
+
+The Quarantine Lambda uses the shared `OntapClient` for ONTAP operations:
+
+```python
+# Quarantine action
+client.restrict_export_policy(policy_id)  # Block all access
+
+# Restore action (after investigation)
+client.restore_export_policy(policy_id, client_match="10.0.0.0/16")
+```
+
+The client handles:
+- Secrets Manager credential retrieval
+- SSL certificate verification (FSx self-signed)
+- Async job polling for long-running operations
+- Retry with exponential backoff
+
+## EventBridge Rule Patterns
+
+Two rules classify events for routing:
+
+```yaml
+# High-severity → Quarantine workflow
+EventPattern:
+  source: [fsxn.cyber-resilience.fpolicy, fsxn.cyber-resilience.arp]
+  detail-type: [MalwareDetected, RansomwareDetected]
+
+# All events → Notification
+EventPattern:
+  source: [{prefix: fsxn.cyber-resilience}]
+```
+
+## Observability
+
+CloudWatch custom metrics track:
+- `SecurityEventsReceived` — pipeline throughput
+- `MalwareDetected` — detection count (by scanner)
+- `QuarantineExecuted` — containment actions
+- `ScanLatencyP99` — scanning performance
+
+Alarms trigger at:
+- 10+ malware detections in 5 minutes (burst attack)
+- Any ransomware alert (ARP)
+- Scan latency > 100ms
+
+## Implementation
+
+Full source code with 285 tests:
+
+**Repository**: [github.com/Yoshiki0705/fsxn-cyber-resilience-patterns](https://github.com/Yoshiki0705/fsxn-cyber-resilience-patterns)
+
+Key files:
+- [`templates/event-driven.yaml`](https://github.com/Yoshiki0705/fsxn-cyber-resilience-patterns/blob/main/templates/event-driven.yaml) — CloudFormation template
+- [`solutions/event-driven-response/lambda/`](https://github.com/Yoshiki0705/fsxn-cyber-resilience-patterns/tree/main/solutions/event-driven-response/lambda) — Lambda implementations
+- [`docs/runbooks/ransomware-recovery.md`](https://github.com/Yoshiki0705/fsxn-cyber-resilience-patterns/blob/main/docs/runbooks/ransomware-recovery.md) — Recovery runbook
+
+## 日本語サマリ
+
+シリーズ第3回：イベント駆動型の自動隔離ワークフロー実装。FPolicy/ARP イベントから Step Functions による自動封じ込め、人間承認パターン (Human-in-the-Loop)、FlexClone によるフォレンジック環境分離を解説。
+
+---
+
+*Yoshiki Fujiwara — NetApp Cloud Solutions Architect, AWS Community Builder (Storage)*
