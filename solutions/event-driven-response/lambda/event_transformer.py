@@ -9,6 +9,7 @@ Environment Variables:
     EVENT_BUS_NAME: EventBridge custom bus name
     ENVIRONMENT: Deployment environment (dev/staging/production)
 """
+
 from __future__ import annotations
 
 import json
@@ -94,7 +95,9 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             logger.error(f"EventBridge batch publish failed: {e}")
             failures += len(batch)
 
-    logger.info(f"Published: {published}, Failed: {failures}, Parse errors: {len(failed_ids)}")
+    logger.info(
+        f"Published: {published}, Failed: {failures}, Parse errors: {len(failed_ids)}"
+    )
 
     # Return batch item failures for SQS partial batch response
     result: dict[str, Any] = {
@@ -104,9 +107,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     }
 
     if failed_ids:
-        result["batchItemFailures"] = [
-            {"itemIdentifier": mid} for mid in failed_ids
-        ]
+        result["batchItemFailures"] = [{"itemIdentifier": mid} for mid in failed_ids]
 
     return result
 
@@ -187,10 +188,19 @@ def _transform_event(raw_event: dict[str, Any]) -> dict[str, Any]:
         "metadata": {
             k: v
             for k, v in raw_event.items()
-            if k not in {
-                "source", "event_type", "file_system_id", "svm_id",
-                "volume_id", "file_path", "client_ip", "user_name",
-                "verdict", "scanner_name", "timestamp",
+            if k
+            not in {
+                "source",
+                "event_type",
+                "file_system_id",
+                "svm_id",
+                "volume_id",
+                "file_path",
+                "client_ip",
+                "user_name",
+                "verdict",
+                "scanner_name",
+                "timestamp",
             }
         },
     }

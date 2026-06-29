@@ -3,6 +3,7 @@
 Uses cfn-lint programmatic API to validate all templates in the templates/ directory.
 Handles CloudFormation intrinsic functions (!Ref, !Sub, etc.) with a custom YAML loader.
 """
+
 from __future__ import annotations
 
 import json
@@ -18,6 +19,7 @@ PARAMETERS_DIR = Path(__file__).parent.parent / "parameters"
 # Custom YAML loader that handles CloudFormation intrinsic functions
 class CfnLoader(yaml.SafeLoader):
     """YAML loader that handles CloudFormation intrinsic function tags."""
+
     pass
 
 
@@ -34,10 +36,24 @@ def _cfn_tag_constructor(loader: yaml.Loader, tag_suffix: str, node: yaml.Node) 
 
 # Register all CloudFormation intrinsic functions
 _cfn_tags = [
-    "!Ref", "!Sub", "!GetAtt", "!Select", "!Split", "!Join",
-    "!FindInMap", "!If", "!Equals", "!And", "!Or", "!Not",
-    "!Condition", "!ImportValue", "!Base64", "!Cidr",
-    "!GetAZs", "!Transform",
+    "!Ref",
+    "!Sub",
+    "!GetAtt",
+    "!Select",
+    "!Split",
+    "!Join",
+    "!FindInMap",
+    "!If",
+    "!Equals",
+    "!And",
+    "!Or",
+    "!Not",
+    "!Condition",
+    "!ImportValue",
+    "!Base64",
+    "!Cidr",
+    "!GetAZs",
+    "!Transform",
 ]
 
 for tag in _cfn_tags:
@@ -92,18 +108,14 @@ class TestNetworkTemplate:
         """Network template must define a VPC."""
         resources = template["Resources"]
         vpc_resources = [
-            k for k, v in resources.items()
-            if v["Type"] == "AWS::EC2::VPC"
+            k for k, v in resources.items() if v["Type"] == "AWS::EC2::VPC"
         ]
         assert len(vpc_resources) == 1
 
     def test_subnets_multi_az(self, template: dict) -> None:
         """Network template must have subnets in 2 AZs (6 always-on + 1 conditional)."""
         resources = template["Resources"]
-        subnets = [
-            k for k, v in resources.items()
-            if v["Type"] == "AWS::EC2::Subnet"
-        ]
+        subnets = [k for k, v in resources.items() if v["Type"] == "AWS::EC2::Subnet"]
         # 6 always-on: 2 FSx + 2 Security + 2 Compute
         # 1 conditional: SubnetPublic1 (NAT Gateway)
         assert len(subnets) >= 6
@@ -112,8 +124,7 @@ class TestNetworkTemplate:
         """Network template must define required security groups."""
         resources = template["Resources"]
         sgs = [
-            k for k, v in resources.items()
-            if v["Type"] == "AWS::EC2::SecurityGroup"
+            k for k, v in resources.items() if v["Type"] == "AWS::EC2::SecurityGroup"
         ]
         # sg-fsx, sg-client, sg-vscan, sg-deep-instinct, sg-lambda, sg-vpc-endpoints = 6
         assert len(sgs) >= 6
@@ -128,8 +139,7 @@ class TestNetworkTemplate:
         """Network template must define VPC endpoints."""
         resources = template["Resources"]
         endpoints = [
-            k for k, v in resources.items()
-            if v["Type"] == "AWS::EC2::VPCEndpoint"
+            k for k, v in resources.items() if v["Type"] == "AWS::EC2::VPCEndpoint"
         ]
         # S3 Gateway + SQS + SecretsManager + KMS + STS = 5
         assert len(endpoints) == 5
@@ -189,8 +199,9 @@ class TestNetworkTemplate:
                 if resource.get("Condition"):
                     continue
                 props = resource.get("Properties", {})
-                assert props.get("MapPublicIpOnLaunch", False) is False, \
-                    f"{name} must not assign public IPs"
+                assert (
+                    props.get("MapPublicIpOnLaunch", False) is False
+                ), f"{name} must not assign public IPs"
 
     def test_all_resources_tagged(self, template: dict) -> None:
         """All taggable resources should have at minimum a Name tag."""
@@ -206,8 +217,9 @@ class TestNetworkTemplate:
                 props = resource.get("Properties", {})
                 tags = props.get("Tags", [])
                 tag_keys = [t["Key"] for t in tags]
-                assert "Name" in tag_keys, \
-                    f"{name} ({resource['Type']}) must have a Name tag"
+                assert (
+                    "Name" in tag_keys
+                ), f"{name} ({resource['Type']}) must have a Name tag"
 
     def test_enable_nat_gateway_parameter(self, template: dict) -> None:
         """Template must have EnableNatGateway parameter with default false."""

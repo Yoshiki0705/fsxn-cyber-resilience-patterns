@@ -6,6 +6,7 @@ security posture indicators.
 
 Metric Namespace: FsxOntapCyberResilience
 """
+
 from __future__ import annotations
 
 import logging

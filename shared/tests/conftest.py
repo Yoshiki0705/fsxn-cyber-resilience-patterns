@@ -1,4 +1,5 @@
 """Pytest configuration for shared library tests."""
+
 from __future__ import annotations
 
 import sys

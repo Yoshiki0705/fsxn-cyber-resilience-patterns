@@ -1,10 +1,10 @@
 """Unit tests for Deep Instinct verdict_handler Lambda."""
+
 from __future__ import annotations
 
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -66,24 +66,46 @@ class TestParseVerdict:
     """Tests for verdict record parsing."""
 
     def test_direct_format(self):
-        record = {"file_path": "/data/test.exe", "classification": "malicious", "confidence": 0.95}
+        record = {
+            "file_path": "/data/test.exe",
+            "classification": "malicious",
+            "confidence": 0.95,
+        }
         result = _parse_verdict(record)
         assert result["file_path"] == "/data/test.exe"
 
     def test_cloudwatch_logs_format(self):
-        inner = json.dumps({"file_path": "/data/test.exe", "classification": "benign", "confidence": 0.99})
+        inner = json.dumps(
+            {
+                "file_path": "/data/test.exe",
+                "classification": "benign",
+                "confidence": 0.99,
+            }
+        )
         record = {"message": inner}
         result = _parse_verdict(record)
         assert result["classification"] == "benign"
 
     def test_body_string_format(self):
-        inner = json.dumps({"file_path": "/data/test.exe", "classification": "suspicious", "confidence": 0.6})
+        inner = json.dumps(
+            {
+                "file_path": "/data/test.exe",
+                "classification": "suspicious",
+                "confidence": 0.6,
+            }
+        )
         record = {"body": inner}
         result = _parse_verdict(record)
         assert result["confidence"] == 0.6
 
     def test_body_dict_format(self):
-        record = {"body": {"file_path": "/data/test.exe", "classification": "malicious", "confidence": 0.9}}
+        record = {
+            "body": {
+                "file_path": "/data/test.exe",
+                "classification": "malicious",
+                "confidence": 0.9,
+            }
+        }
         result = _parse_verdict(record)
         assert result is not None
 
@@ -106,7 +128,11 @@ class TestHandler:
 
         event = {
             "records": [
-                {"file_path": "/vol/data/malware.exe", "classification": "malicious", "confidence": 0.95}
+                {
+                    "file_path": "/vol/data/malware.exe",
+                    "classification": "malicious",
+                    "confidence": 0.95,
+                }
             ]
         }
         result = handler(event, None)
@@ -140,7 +166,11 @@ class TestHandler:
 
         event = {
             "records": [
-                {"file_path": "/a.exe", "classification": "malicious", "confidence": 0.9},
+                {
+                    "file_path": "/a.exe",
+                    "classification": "malicious",
+                    "confidence": 0.9,
+                },
                 {"file_path": "/b.doc", "classification": "benign", "confidence": 0.99},
             ]
         }

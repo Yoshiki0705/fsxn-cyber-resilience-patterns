@@ -15,6 +15,7 @@ Lifecycle:
     Update: Reconfigure FPolicy (ARP state change requires separate workflow)
     Delete: Disable FPolicy policies (ARP remains for safety)
 """
+
 from __future__ import annotations
 
 import json
@@ -23,7 +24,6 @@ import os
 import time
 from typing import Any
 
-import boto3
 import urllib3
 
 # Custom Resource response helpers
@@ -52,12 +52,16 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     request_type = event.get("RequestType", "")
     properties = event.get("ResourceProperties", {})
-    physical_resource_id = event.get("PhysicalResourceId", f"ontap-security-config-{int(time.time())}")
+    physical_resource_id = event.get(
+        "PhysicalResourceId", f"ontap-security-config-{int(time.time())}"
+    )
 
     try:
         if request_type == "Create":
             result = _handle_create(properties)
-            physical_resource_id = result.get("physical_resource_id", physical_resource_id)
+            physical_resource_id = result.get(
+                "physical_resource_id", physical_resource_id
+            )
         elif request_type == "Update":
             result = _handle_update(properties, event.get("OldResourceProperties", {}))
         elif request_type == "Delete":
@@ -88,7 +92,11 @@ def _handle_create(properties: dict[str, Any]) -> dict[str, Any]:
     volume_uuids = properties.get("VolumeUuids", [])
     fpolicy_config = properties.get("FPolicyConfig", {})
 
-    results: dict[str, Any] = {"arp_volumes": [], "fpolicy_configured": False, "mav_configured": False}
+    results: dict[str, Any] = {
+        "arp_volumes": [],
+        "fpolicy_configured": False,
+        "mav_configured": False,
+    }
 
     # Step 1: Enable ARP in learning mode on specified volumes
     for vol_uuid in volume_uuids:
@@ -112,7 +120,9 @@ def _handle_create(properties: dict[str, Any]) -> dict[str, Any]:
         results["mav_configured"] = True
         results["fpolicy_configured"] = True
 
-    results["physical_resource_id"] = f"ontap-security-{svm_uuid[:8]}-{int(time.time())}"
+    results["physical_resource_id"] = (
+        f"ontap-security-{svm_uuid[:8]}-{int(time.time())}"
+    )
     return results
 
 
@@ -169,9 +179,13 @@ def _handle_delete(properties: dict[str, Any]) -> dict[str, Any]:
         policy_name = fpolicy_config.get("policy_name", "")
         if policy_name:
             try:
-                client.enable_fpolicy(svm_uuid, policy_name, priority=0)  # priority 0 = disabled
+                client.enable_fpolicy(
+                    svm_uuid, policy_name, priority=0
+                )  # priority 0 = disabled
                 results["fpolicy_disabled"] = True
-                logger.info(f"FPolicy policy '{policy_name}' disabled on SVM {svm_uuid}")
+                logger.info(
+                    f"FPolicy policy '{policy_name}' disabled on SVM {svm_uuid}"
+                )
             except Exception as e:
                 logger.warning(f"Failed to disable FPolicy: {e}")
 
@@ -203,7 +217,9 @@ def _configure_fpolicy(
     port = config.get("port", 1344)
     engine_type = config.get("engine_type", "synchronous")
     event_name = config.get("event_name", "cyber-resilience-event")
-    file_operations = config.get("file_operations", {"write": True, "create": True, "rename": True})
+    file_operations = config.get(
+        "file_operations", {"write": True, "create": True, "rename": True}
+    )
     policy_name = config.get("policy_name", "cyber-resilience-policy")
     is_mandatory = config.get("is_mandatory", False)
 
@@ -275,30 +291,41 @@ def _configure_mav(client: Any, config: dict[str, Any]) -> None:
     enabled = config.get("enabled", True)
     required_approvers = config.get("required_approvers", 2)
     approval_expiry = config.get("approval_expiry_hours", 24)
-    protected_operations = config.get("protected_operations", [
-        "volume delete",
-        "volume offline",
-        "security anti-ransomware volume disable",
-        "vserver export-policy rule delete",
-        "snapshot policy delete",
-    ])
+    protected_operations = config.get(
+        "protected_operations",
+        [
+            "volume delete",
+            "volume offline",
+            "security anti-ransomware volume disable",
+            "vserver export-policy rule delete",
+            "snapshot policy delete",
+        ],
+    )
 
     try:
         # Enable MAV globally
-        client._request("PATCH", "/security/multi-admin-verify", body={
-            "enabled": enabled,
-            "required_approvers": required_approvers,
-            "approval_expiry": f"PT{approval_expiry}H",
-        })
+        client._request(
+            "PATCH",
+            "/security/multi-admin-verify",
+            body={
+                "enabled": enabled,
+                "required_approvers": required_approvers,
+                "approval_expiry": f"PT{approval_expiry}H",
+            },
+        )
         logger.info(f"MAV enabled: required_approvers={required_approvers}")
 
         # Configure protected operations
         for operation in protected_operations:
             try:
-                client._request("POST", "/security/multi-admin-verify/rules", body={
-                    "operation": operation,
-                    "required_approvers": required_approvers,
-                })
+                client._request(
+                    "POST",
+                    "/security/multi-admin-verify/rules",
+                    body={
+                        "operation": operation,
+                        "required_approvers": required_approvers,
+                    },
+                )
                 logger.info(f"MAV rule created: {operation}")
             except Exception as e:
                 if "duplicate" in str(e).lower() or "already exists" in str(e).lower():
@@ -320,6 +347,7 @@ def _get_ontap_client(properties: dict[str, Any]) -> Any:
     for the Custom Resource. For production, use the shared OntapClient.
     """
     import sys
+
     sys.path.insert(0, "/opt/python")  # Lambda Layer path
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "shared"))
 
@@ -349,18 +377,24 @@ def _send_response(
     """
     response_url = event.get("ResponseURL", "")
     if not response_url:
-        logger.warning("No ResponseURL — skipping CFn response (likely a test invocation)")
+        logger.warning(
+            "No ResponseURL — skipping CFn response (likely a test invocation)"
+        )
         return
 
-    response_body = json.dumps({
-        "Status": status,
-        "Reason": data.get("Error", f"See CloudWatch Log Stream: {context.log_stream_name}"),
-        "PhysicalResourceId": physical_resource_id,
-        "StackId": event.get("StackId", ""),
-        "RequestId": event.get("RequestId", ""),
-        "LogicalResourceId": event.get("LogicalResourceId", ""),
-        "Data": {k: str(v)[:1024] for k, v in data.items() if k != "Error"},
-    })
+    response_body = json.dumps(
+        {
+            "Status": status,
+            "Reason": data.get(
+                "Error", f"See CloudWatch Log Stream: {context.log_stream_name}"
+            ),
+            "PhysicalResourceId": physical_resource_id,
+            "StackId": event.get("StackId", ""),
+            "RequestId": event.get("RequestId", ""),
+            "LogicalResourceId": event.get("LogicalResourceId", ""),
+            "Data": {k: str(v)[:1024] for k, v in data.items() if k != "Error"},
+        }
+    )
 
     http = urllib3.PoolManager()
     http.request(

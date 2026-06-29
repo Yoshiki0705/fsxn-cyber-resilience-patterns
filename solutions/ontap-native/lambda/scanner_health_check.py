@@ -9,6 +9,7 @@ Environment Variables:
     ENVIRONMENT: Deployment environment
     PROJECT_NAME: Project name for metric dimensions
 """
+
 from __future__ import annotations
 
 import logging

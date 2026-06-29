@@ -11,12 +11,13 @@ Environment Variables:
     SNS_TOPIC_ARN: SNS topic for transition notifications
     LEARNING_DAYS: Days before transition (default: 30)
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Any
 
 import boto3
@@ -96,13 +97,15 @@ def _transition_arp(
     sns.publish(
         TopicArn=SNS_TOPIC_ARN,
         Subject=f"ARP Transition: Volume {volume_uuid[:8]}... ready for active mode",
-        Message=json.dumps({
-            "action": "arp_transition",
-            "volume_uuid": volume_uuid,
-            "from_state": "dry_run",
-            "to_state": "enabled",
-            "message": "Learning period complete. Transitioning to active protection.",
-        }),
+        Message=json.dumps(
+            {
+                "action": "arp_transition",
+                "volume_uuid": volume_uuid,
+                "from_state": "dry_run",
+                "to_state": "enabled",
+                "message": "Learning period complete. Transitioning to active protection.",
+            }
+        ),
     )
 
     # Perform transition via ONTAP REST API

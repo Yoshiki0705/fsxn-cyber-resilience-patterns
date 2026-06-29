@@ -58,12 +58,12 @@ jobs:
         uses: aws-cloudformation/cloudformation-guard@d34a64e8bc0660203e3b4120793ed60c1de5761b # v0.0.11
         with:
           rules: 'security/guard-rules/'
-          data: 'templates/network.yaml'
+          data: 'templates/'
           show-summary: 'fail'
 
       - name: Run ruff (Python linter)
         run: |
-          ruff check solutions/ tests/ --output-format=github || true
+          ruff check solutions/ tests/ shared/ --output-format=github
 
       - name: Run Bandit (Python SAST)
         run: |

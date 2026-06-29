@@ -1,18 +1,20 @@
 """Unit tests for ARP Lifecycle Manager Lambda."""
+
 from __future__ import annotations
 
-import json
 import os
 from datetime import datetime, timezone, timedelta
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 # Patch env vars before importing module
 os.environ["STATE_TABLE_NAME"] = "test-arp-state"
-os.environ["FSX_SECRET_ARN"] = "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:test"
-os.environ["MANAGEMENT_ENDPOINT"] = "management.fs-test.fsx.ap-northeast-1.amazonaws.com"
+os.environ["FSX_SECRET_ARN"] = (
+    "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:test"
+)
+os.environ["MANAGEMENT_ENDPOINT"] = (
+    "management.fs-test.fsx.ap-northeast-1.amazonaws.com"
+)
 os.environ["SNS_TOPIC_ARN"] = "arn:aws:sns:ap-northeast-1:123456789012:test-topic"
 os.environ["LEARNING_DAYS"] = "30"
 
@@ -42,7 +44,12 @@ class TestArpLifecycleHandler:
         recent_date = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
         mock_table.scan.return_value = {
             "Items": [
-                {"volume_uuid": "vol-001", "arp_start_date": recent_date, "current_state": "dry_run", "learning_days": 30}
+                {
+                    "volume_uuid": "vol-001",
+                    "arp_start_date": recent_date,
+                    "current_state": "dry_run",
+                    "learning_days": 30,
+                }
             ]
         }
         mock_resource.return_value.Table.return_value = mock_table
@@ -55,13 +62,20 @@ class TestArpLifecycleHandler:
     @patch("arp_lifecycle._transition_arp")
     @patch("arp_lifecycle.boto3.resource")
     @patch("arp_lifecycle.boto3.client")
-    def test_volume_ready_for_transition(self, mock_client, mock_resource, mock_transition):
+    def test_volume_ready_for_transition(
+        self, mock_client, mock_resource, mock_transition
+    ):
         """Volume past learning period should transition."""
         mock_table = MagicMock()
         old_date = (datetime.now(timezone.utc) - timedelta(days=35)).isoformat()
         mock_table.scan.return_value = {
             "Items": [
-                {"volume_uuid": "vol-001", "arp_start_date": old_date, "current_state": "dry_run", "learning_days": 30}
+                {
+                    "volume_uuid": "vol-001",
+                    "arp_start_date": old_date,
+                    "current_state": "dry_run",
+                    "learning_days": 30,
+                }
             ]
         }
         mock_resource.return_value.Table.return_value = mock_table
@@ -75,13 +89,20 @@ class TestArpLifecycleHandler:
     @patch("arp_lifecycle._transition_arp")
     @patch("arp_lifecycle.boto3.resource")
     @patch("arp_lifecycle.boto3.client")
-    def test_transition_failure_recorded(self, mock_client, mock_resource, mock_transition):
+    def test_transition_failure_recorded(
+        self, mock_client, mock_resource, mock_transition
+    ):
         """Failed transitions should be recorded in errors."""
         mock_table = MagicMock()
         old_date = (datetime.now(timezone.utc) - timedelta(days=35)).isoformat()
         mock_table.scan.return_value = {
             "Items": [
-                {"volume_uuid": "vol-fail", "arp_start_date": old_date, "current_state": "dry_run", "learning_days": 30}
+                {
+                    "volume_uuid": "vol-fail",
+                    "arp_start_date": old_date,
+                    "current_state": "dry_run",
+                    "learning_days": 30,
+                }
             ]
         }
         mock_resource.return_value.Table.return_value = mock_table

@@ -1,4 +1,5 @@
 """Pytest configuration — add solution directories to sys.path for imports."""
+
 from __future__ import annotations
 
 import os

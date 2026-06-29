@@ -7,6 +7,7 @@ Integration patterns:
   1. Vscan/ICAP: FPolicy → ICAP → TrendAI → verdict → this Lambda (via SQS)
   2. S3 AP batch: S3 AP scan → SNS/SQS → this Lambda
 """
+
 from __future__ import annotations
 
 import json
@@ -62,17 +63,19 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 "Source": SOURCE,
                 "DetailType": detail_type,
                 "EventBusName": EVENT_BUS_NAME,
-                "Detail": json.dumps({
-                    "fileSystemId": FILE_SYSTEM_ID,
-                    "filePath": verdict["file_path"],
-                    "operation": verdict.get("operation", "write"),
-                    "verdict": verdict["verdict"].upper(),
-                    "scannerName": "trendai",
-                    "severity": severity,
-                    "malwareName": verdict.get("malware_name", ""),
-                    "scanType": verdict.get("scan_type", "realtime"),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }),
+                "Detail": json.dumps(
+                    {
+                        "fileSystemId": FILE_SYSTEM_ID,
+                        "filePath": verdict["file_path"],
+                        "operation": verdict.get("operation", "write"),
+                        "verdict": verdict["verdict"].upper(),
+                        "scannerName": "trendai",
+                        "severity": severity,
+                        "malwareName": verdict.get("malware_name", ""),
+                        "scanType": verdict.get("scan_type", "realtime"),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                ),
             }
 
             response = events_client.put_events(Entries=[entry])

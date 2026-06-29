@@ -2,6 +2,7 @@
 
 Uses unittest.mock to avoid real network/Secrets Manager calls.
 """
+
 from __future__ import annotations
 
 import json
@@ -71,12 +72,14 @@ class TestVolumeOperations:
     def test_list_volumes(self, client):
         mock_response = MagicMock()
         mock_response.status = 200
-        mock_response.data = json.dumps({
-            "records": [
-                {"name": "vol1", "uuid": "uuid-1", "svm": {"name": "svm-prod"}},
-                {"name": "vol2", "uuid": "uuid-2", "svm": {"name": "svm-prod"}},
-            ]
-        }).encode()
+        mock_response.data = json.dumps(
+            {
+                "records": [
+                    {"name": "vol1", "uuid": "uuid-1", "svm": {"name": "svm-prod"}},
+                    {"name": "vol2", "uuid": "uuid-2", "svm": {"name": "svm-prod"}},
+                ]
+            }
+        ).encode()
 
         client._http.request = MagicMock(return_value=mock_response)
         volumes = client.list_volumes(svm_name="svm-prod")
@@ -102,9 +105,9 @@ class TestVolumeOperations:
     def test_get_volume(self, client):
         mock_response = MagicMock()
         mock_response.status = 200
-        mock_response.data = json.dumps({
-            "name": "vol1", "uuid": "uuid-1", "state": "online"
-        }).encode()
+        mock_response.data = json.dumps(
+            {"name": "vol1", "uuid": "uuid-1", "state": "online"}
+        ).encode()
 
         client._http.request = MagicMock(return_value=mock_response)
         volume = client.get_volume("uuid-1")
@@ -167,7 +170,7 @@ class TestArpOperations:
         mock_response.data = json.dumps({"state": "enabled"}).encode()
 
         client._http.request = MagicMock(return_value=mock_response)
-        result = client.enable_arp("vol-uuid-1", state="enabled")
+        client.enable_arp("vol-uuid-1", state="enabled")
 
         call_args = client._http.request.call_args
         body = json.loads(call_args[1]["body"])
@@ -176,10 +179,12 @@ class TestArpOperations:
     def test_get_arp_status(self, client):
         mock_response = MagicMock()
         mock_response.status = 200
-        mock_response.data = json.dumps({
-            "state": "enabled",
-            "suspect_files": [],
-        }).encode()
+        mock_response.data = json.dumps(
+            {
+                "state": "enabled",
+                "suspect_files": [],
+            }
+        ).encode()
 
         client._http.request = MagicMock(return_value=mock_response)
         result = client.get_arp_status("vol-uuid-1")
@@ -257,9 +262,11 @@ class TestExportPolicyOperations:
         # Mock GET rules response
         rules_response = MagicMock()
         rules_response.status = 200
-        rules_response.data = json.dumps({
-            "records": [{"index": 1}, {"index": 2}],
-        }).encode()
+        rules_response.data = json.dumps(
+            {
+                "records": [{"index": 1}, {"index": 2}],
+            }
+        ).encode()
 
         # Mock DELETE responses
         delete_response = MagicMock()
@@ -269,13 +276,20 @@ class TestExportPolicyOperations:
         # Mock POST (create deny-all rule) response
         post_response = MagicMock()
         post_response.status = 201
-        post_response.data = json.dumps({
-            "clients": [{"match": "0.0.0.0/0"}],
-            "ro_rule": ["never"],
-        }).encode()
+        post_response.data = json.dumps(
+            {
+                "clients": [{"match": "0.0.0.0/0"}],
+                "ro_rule": ["never"],
+            }
+        ).encode()
 
         client._http.request = MagicMock(
-            side_effect=[rules_response, delete_response, delete_response, post_response]
+            side_effect=[
+                rules_response,
+                delete_response,
+                delete_response,
+                post_response,
+            ]
         )
         result = client.restrict_export_policy(policy_id=1)
 
@@ -287,9 +301,11 @@ class TestExportPolicyOperations:
         # Mock GET rules response
         rules_response = MagicMock()
         rules_response.status = 200
-        rules_response.data = json.dumps({
-            "records": [{"index": 1}],
-        }).encode()
+        rules_response.data = json.dumps(
+            {
+                "records": [{"index": 1}],
+            }
+        ).encode()
 
         # Mock DELETE response
         delete_response = MagicMock()
@@ -299,11 +315,13 @@ class TestExportPolicyOperations:
         # Mock POST (create allow rule)
         post_response = MagicMock()
         post_response.status = 201
-        post_response.data = json.dumps({
-            "clients": [{"match": "0.0.0.0/0"}],
-            "ro_rule": ["sys"],
-            "rw_rule": ["sys"],
-        }).encode()
+        post_response.data = json.dumps(
+            {
+                "clients": [{"match": "0.0.0.0/0"}],
+                "ro_rule": ["sys"],
+                "rw_rule": ["sys"],
+            }
+        ).encode()
 
         client._http.request = MagicMock(
             side_effect=[rules_response, delete_response, post_response]
@@ -323,9 +341,9 @@ class TestErrorHandling:
     def test_api_error_on_4xx(self, client):
         mock_response = MagicMock()
         mock_response.status = 404
-        mock_response.data = json.dumps({
-            "error": {"message": "Volume not found"}
-        }).encode()
+        mock_response.data = json.dumps(
+            {"error": {"message": "Volume not found"}}
+        ).encode()
 
         client._http.request = MagicMock(return_value=mock_response)
 
@@ -338,9 +356,9 @@ class TestErrorHandling:
     def test_api_error_on_5xx(self, client):
         mock_response = MagicMock()
         mock_response.status = 500
-        mock_response.data = json.dumps({
-            "error": {"message": "Internal error"}
-        }).encode()
+        mock_response.data = json.dumps(
+            {"error": {"message": "Internal error"}}
+        ).encode()
 
         client._http.request = MagicMock(return_value=mock_response)
 
@@ -353,11 +371,13 @@ class TestErrorHandling:
         # Initial 202 response with job link
         async_response = MagicMock()
         async_response.status = 202
-        async_response.data = json.dumps({
-            "job": {
-                "_links": {"self": {"href": "/api/cluster/jobs/job-uuid-1"}},
+        async_response.data = json.dumps(
+            {
+                "job": {
+                    "_links": {"self": {"href": "/api/cluster/jobs/job-uuid-1"}},
+                }
             }
-        }).encode()
+        ).encode()
 
         # Polling response: running
         running_response = MagicMock()
@@ -367,7 +387,9 @@ class TestErrorHandling:
         # Polling response: success
         success_response = MagicMock()
         success_response.status = 200
-        success_response.data = json.dumps({"state": "success", "result": "done"}).encode()
+        success_response.data = json.dumps(
+            {"state": "success", "result": "done"}
+        ).encode()
 
         client._http.request = MagicMock(
             side_effect=[async_response, running_response, success_response]
@@ -381,22 +403,24 @@ class TestErrorHandling:
     def test_async_job_polling_failure(self, client):
         async_response = MagicMock()
         async_response.status = 202
-        async_response.data = json.dumps({
-            "job": {
-                "_links": {"self": {"href": "/api/cluster/jobs/job-uuid-2"}},
+        async_response.data = json.dumps(
+            {
+                "job": {
+                    "_links": {"self": {"href": "/api/cluster/jobs/job-uuid-2"}},
+                }
             }
-        }).encode()
+        ).encode()
 
         failure_response = MagicMock()
         failure_response.status = 200
-        failure_response.data = json.dumps({
-            "state": "failure",
-            "error": {"message": "Disk full"},
-        }).encode()
+        failure_response.data = json.dumps(
+            {
+                "state": "failure",
+                "error": {"message": "Disk full"},
+            }
+        ).encode()
 
-        client._http.request = MagicMock(
-            side_effect=[async_response, failure_response]
-        )
+        client._http.request = MagicMock(side_effect=[async_response, failure_response])
 
         with patch("ontap_client.time.sleep"):
             with pytest.raises(OntapApiError) as exc_info:
@@ -411,12 +435,14 @@ class TestSvmOperations:
     def test_list_svms(self, client):
         mock_response = MagicMock()
         mock_response.status = 200
-        mock_response.data = json.dumps({
-            "records": [
-                {"name": "svm-prod", "uuid": "svm-uuid-1", "state": "running"},
-                {"name": "svm-audit", "uuid": "svm-uuid-2", "state": "running"},
-            ]
-        }).encode()
+        mock_response.data = json.dumps(
+            {
+                "records": [
+                    {"name": "svm-prod", "uuid": "svm-uuid-1", "state": "running"},
+                    {"name": "svm-audit", "uuid": "svm-uuid-2", "state": "running"},
+                ]
+            }
+        ).encode()
 
         client._http.request = MagicMock(return_value=mock_response)
         svms = client.list_svms()
@@ -427,9 +453,9 @@ class TestSvmOperations:
     def test_get_svm(self, client):
         mock_response = MagicMock()
         mock_response.status = 200
-        mock_response.data = json.dumps({
-            "name": "svm-prod", "uuid": "svm-uuid-1", "state": "running"
-        }).encode()
+        mock_response.data = json.dumps(
+            {"name": "svm-prod", "uuid": "svm-uuid-1", "state": "running"}
+        ).encode()
 
         client._http.request = MagicMock(return_value=mock_response)
         svm = client.get_svm("svm-uuid-1")

@@ -2,6 +2,7 @@
 
 Validates the FSx for ONTAP storage template structure, resources, and configuration.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -15,6 +16,7 @@ TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 # Custom YAML loader for CloudFormation intrinsic functions
 class CfnLoader(yaml.SafeLoader):
     """YAML loader that handles CloudFormation intrinsic function tags."""
+
     pass
 
 
@@ -30,10 +32,24 @@ def _cfn_tag_constructor(loader: yaml.Loader, tag_suffix: str, node: yaml.Node) 
 
 
 _cfn_tags = [
-    "!Ref", "!Sub", "!GetAtt", "!Select", "!Split", "!Join",
-    "!FindInMap", "!If", "!Equals", "!And", "!Or", "!Not",
-    "!Condition", "!ImportValue", "!Base64", "!Cidr",
-    "!GetAZs", "!Transform",
+    "!Ref",
+    "!Sub",
+    "!GetAtt",
+    "!Select",
+    "!Split",
+    "!Join",
+    "!FindInMap",
+    "!If",
+    "!Equals",
+    "!And",
+    "!Or",
+    "!Not",
+    "!Condition",
+    "!ImportValue",
+    "!Base64",
+    "!Cidr",
+    "!GetAZs",
+    "!Transform",
 ]
 
 for tag in _cfn_tags:
@@ -75,7 +91,9 @@ class TestStorageTemplate:
         params = template["Parameters"]
         assert "Environment" in params
         assert set(params["Environment"]["AllowedValues"]) == {
-            "dev", "staging", "production"
+            "dev",
+            "staging",
+            "production",
         }
 
     def test_throughput_parameter(self, template: dict) -> None:
@@ -145,7 +163,9 @@ class TestStorageTemplate:
 
     def test_fsx_has_automatic_backups(self, template: dict) -> None:
         """File system must have automatic backups configured."""
-        ontap_config = template["Resources"]["FsxFileSystem"]["Properties"]["OntapConfiguration"]
+        ontap_config = template["Resources"]["FsxFileSystem"]["Properties"][
+            "OntapConfiguration"
+        ]
         assert ontap_config["AutomaticBackupRetentionDays"] >= 7
 
     # ------------------------------------------------------------------
@@ -213,25 +233,33 @@ class TestStorageTemplate:
 
     def test_volume_production_has_tiering(self, template: dict) -> None:
         """Production volume must have capacity pool tiering configured."""
-        vol = template["Resources"]["VolumeProduction"]["Properties"]["OntapConfiguration"]
+        vol = template["Resources"]["VolumeProduction"]["Properties"][
+            "OntapConfiguration"
+        ]
         assert vol["TieringPolicy"]["Name"] == "AUTO"
 
     def test_volume_snaplock_has_retention(self, template: dict) -> None:
         """SnapLock volume must have retention period configured."""
-        vol = template["Resources"]["VolumeSnaplock"]["Properties"]["OntapConfiguration"]
+        vol = template["Resources"]["VolumeSnaplock"]["Properties"][
+            "OntapConfiguration"
+        ]
         snaplock = vol["SnaplockConfiguration"]
         assert snaplock["SnaplockType"] in ["COMPLIANCE", "ENTERPRISE"]
         assert "RetentionPeriod" in snaplock
 
     def test_volume_snaplock_privileged_delete_disabled(self, template: dict) -> None:
         """SnapLock volume must have privileged delete permanently disabled."""
-        vol = template["Resources"]["VolumeSnaplock"]["Properties"]["OntapConfiguration"]
+        vol = template["Resources"]["VolumeSnaplock"]["Properties"][
+            "OntapConfiguration"
+        ]
         snaplock = vol["SnaplockConfiguration"]
         assert snaplock["PrivilegedDelete"] == "PERMANENTLY_DISABLED"
 
     def test_volume_snaplock_no_tiering(self, template: dict) -> None:
         """SnapLock volume must NOT use capacity pool tiering (data integrity)."""
-        vol = template["Resources"]["VolumeSnaplock"]["Properties"]["OntapConfiguration"]
+        vol = template["Resources"]["VolumeSnaplock"]["Properties"][
+            "OntapConfiguration"
+        ]
         assert vol["TieringPolicy"]["Name"] == "NONE"
 
     # ------------------------------------------------------------------
@@ -244,8 +272,9 @@ class TestStorageTemplate:
         for name in volume_names:
             tags = resources[name]["Properties"]["Tags"]
             tag_keys = [t["Key"] for t in tags]
-            assert "DataClassification" in tag_keys, \
-                f"{name} must have DataClassification tag"
+            assert (
+                "DataClassification" in tag_keys
+            ), f"{name} must have DataClassification tag"
 
     def test_confidential_volumes_identified(self, template: dict) -> None:
         """Audit and SnapLock volumes must be classified as confidential."""
@@ -255,8 +284,9 @@ class TestStorageTemplate:
             classification = next(
                 t["Value"] for t in tags if t["Key"] == "DataClassification"
             )
-            assert classification == "confidential", \
-                f"{vol_name} should be classified as confidential"
+            assert (
+                classification == "confidential"
+            ), f"{vol_name} should be classified as confidential"
 
     # ------------------------------------------------------------------
     # Outputs

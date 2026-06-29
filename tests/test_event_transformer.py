@@ -2,13 +2,13 @@
 
 Tests the SQS → EventBridge transformation logic using moto mocks.
 """
+
 from __future__ import annotations
 
 import json
 import os
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 # Set environment variables before importing handler
 os.environ["EVENT_BUS_NAME"] = "test-security-bus"
@@ -19,7 +19,7 @@ import event_transformer
 # Ensure module-level EVENT_BUS_NAME is set correctly for this test file
 event_transformer.EVENT_BUS_NAME = "test-security-bus"
 
-from event_transformer import (
+from event_transformer import (  # noqa: E402
     _classify_detail_type,
     _classify_severity,
     _transform_event,
@@ -138,7 +138,10 @@ class TestTransformEvent:
 
         detail = json.loads(entry["Detail"])
         assert detail["severity"] == "CRITICAL"
-        assert detail["metadata"]["snapshot_name"] == "anti_ransomware_backup.2026-06-25_1030"
+        assert (
+            detail["metadata"]["snapshot_name"]
+            == "anti_ransomware_backup.2026-06-25_1030"
+        )
         assert detail["metadata"]["affected_files_count"] == 150
 
 
@@ -156,14 +159,16 @@ class TestHandler:
             "Records": [
                 {
                     "messageId": "msg-001",
-                    "body": json.dumps({
-                        "source": "fpolicy",
-                        "event_type": "file_write",
-                        "file_system_id": "fs-0123456789abcdef0",
-                        "svm_id": "svm-0123456789abcdef0",
-                        "volume_id": "fsvol-0123456789abcdef0",
-                        "timestamp": "2026-06-25T10:30:00Z",
-                    }),
+                    "body": json.dumps(
+                        {
+                            "source": "fpolicy",
+                            "event_type": "file_write",
+                            "file_system_id": "fs-0123456789abcdef0",
+                            "svm_id": "svm-0123456789abcdef0",
+                            "volume_id": "fsvol-0123456789abcdef0",
+                            "timestamp": "2026-06-25T10:30:00Z",
+                        }
+                    ),
                 }
             ]
         }
@@ -203,17 +208,21 @@ class TestHandler:
 
         records = []
         for i in range(3):
-            records.append({
-                "messageId": f"msg-{i:03d}",
-                "body": json.dumps({
-                    "source": "fpolicy",
-                    "event_type": "file_write",
-                    "file_system_id": "fs-0123456789abcdef0",
-                    "svm_id": "svm-0123456789abcdef0",
-                    "volume_id": "fsvol-0123456789abcdef0",
-                    "timestamp": "2026-06-25T10:30:00Z",
-                }),
-            })
+            records.append(
+                {
+                    "messageId": f"msg-{i:03d}",
+                    "body": json.dumps(
+                        {
+                            "source": "fpolicy",
+                            "event_type": "file_write",
+                            "file_system_id": "fs-0123456789abcdef0",
+                            "svm_id": "svm-0123456789abcdef0",
+                            "volume_id": "fsvol-0123456789abcdef0",
+                            "timestamp": "2026-06-25T10:30:00Z",
+                        }
+                    ),
+                }
+            )
 
         result = handler({"Records": records}, None)
 

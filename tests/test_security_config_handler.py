@@ -1,7 +1,7 @@
 """Unit tests for ONTAP security_config_handler Custom Resource Lambda."""
+
 from __future__ import annotations
 
-import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -67,7 +67,9 @@ class TestHandleCreate:
     """Tests for Create lifecycle."""
 
     @patch("security_config_handler._get_ontap_client")
-    def test_create_enables_arp_on_all_volumes(self, mock_get_client, mock_ontap_client, base_properties):
+    def test_create_enables_arp_on_all_volumes(
+        self, mock_get_client, mock_ontap_client, base_properties
+    ):
         mock_get_client.return_value = mock_ontap_client
 
         result = _handle_create(base_properties)
@@ -77,7 +79,9 @@ class TestHandleCreate:
         assert mock_ontap_client.enable_arp.call_count == 2
 
     @patch("security_config_handler._get_ontap_client")
-    def test_create_configures_fpolicy(self, mock_get_client, mock_ontap_client, base_properties):
+    def test_create_configures_fpolicy(
+        self, mock_get_client, mock_ontap_client, base_properties
+    ):
         mock_get_client.return_value = mock_ontap_client
 
         result = _handle_create(base_properties)
@@ -89,7 +93,9 @@ class TestHandleCreate:
         mock_ontap_client.enable_fpolicy.assert_called_once()
 
     @patch("security_config_handler._get_ontap_client")
-    def test_create_without_fpolicy(self, mock_get_client, mock_ontap_client, base_properties):
+    def test_create_without_fpolicy(
+        self, mock_get_client, mock_ontap_client, base_properties
+    ):
         mock_get_client.return_value = mock_ontap_client
         del base_properties["FPolicyConfig"]
 
@@ -99,10 +105,15 @@ class TestHandleCreate:
         mock_ontap_client.create_fpolicy_engine.assert_not_called()
 
     @patch("security_config_handler._get_ontap_client")
-    def test_create_arp_failure_continues(self, mock_get_client, mock_ontap_client, base_properties):
+    def test_create_arp_failure_continues(
+        self, mock_get_client, mock_ontap_client, base_properties
+    ):
         """ARP failure on one volume should not block others."""
         mock_get_client.return_value = mock_ontap_client
-        mock_ontap_client.enable_arp.side_effect = [Exception("API error"), {"state": "dry_run"}]
+        mock_ontap_client.enable_arp.side_effect = [
+            Exception("API error"),
+            {"state": "dry_run"},
+        ]
 
         result = _handle_create(base_properties)
 
@@ -115,7 +126,9 @@ class TestHandleUpdate:
     """Tests for Update lifecycle."""
 
     @patch("security_config_handler._get_ontap_client")
-    def test_update_reconfigures_fpolicy(self, mock_get_client, mock_ontap_client, base_properties):
+    def test_update_reconfigures_fpolicy(
+        self, mock_get_client, mock_ontap_client, base_properties
+    ):
         mock_get_client.return_value = mock_ontap_client
         old_properties = {**base_properties, "VolumeUuids": ["vol-uuid-001"]}
 
@@ -123,13 +136,17 @@ class TestHandleUpdate:
 
         assert result["fpolicy_updated"] is True
         # Should enable ARP on newly added volume
-        mock_ontap_client.enable_arp.assert_called_once_with("vol-uuid-002", state="dry_run")
+        mock_ontap_client.enable_arp.assert_called_once_with(
+            "vol-uuid-002", state="dry_run"
+        )
 
     @patch("security_config_handler._get_ontap_client")
-    def test_update_no_new_volumes(self, mock_get_client, mock_ontap_client, base_properties):
+    def test_update_no_new_volumes(
+        self, mock_get_client, mock_ontap_client, base_properties
+    ):
         mock_get_client.return_value = mock_ontap_client
 
-        result = _handle_update(base_properties, base_properties)
+        _handle_update(base_properties, base_properties)
 
         mock_ontap_client.enable_arp.assert_not_called()
 
@@ -138,7 +155,9 @@ class TestHandleDelete:
     """Tests for Delete lifecycle."""
 
     @patch("security_config_handler._get_ontap_client")
-    def test_delete_disables_fpolicy(self, mock_get_client, mock_ontap_client, base_properties):
+    def test_delete_disables_fpolicy(
+        self, mock_get_client, mock_ontap_client, base_properties
+    ):
         mock_get_client.return_value = mock_ontap_client
 
         result = _handle_delete(base_properties)
@@ -149,7 +168,9 @@ class TestHandleDelete:
         mock_ontap_client.enable_arp.assert_not_called()
 
     @patch("security_config_handler._get_ontap_client")
-    def test_delete_without_fpolicy(self, mock_get_client, mock_ontap_client, base_properties):
+    def test_delete_without_fpolicy(
+        self, mock_get_client, mock_ontap_client, base_properties
+    ):
         mock_get_client.return_value = mock_ontap_client
         del base_properties["FPolicyConfig"]
 
@@ -215,7 +236,9 @@ class TestHandler:
 
     @patch("security_config_handler._send_response")
     @patch("security_config_handler._get_ontap_client")
-    def test_handler_create_success(self, mock_get_client, mock_send, mock_ontap_client, cfn_event):
+    def test_handler_create_success(
+        self, mock_get_client, mock_send, mock_ontap_client, cfn_event
+    ):
         mock_get_client.return_value = mock_ontap_client
 
         handler(cfn_event, MagicMock(log_stream_name="test-stream"))
@@ -237,7 +260,9 @@ class TestHandler:
 
     @patch("security_config_handler._send_response")
     @patch("security_config_handler._get_ontap_client")
-    def test_handler_delete(self, mock_get_client, mock_send, mock_ontap_client, cfn_event):
+    def test_handler_delete(
+        self, mock_get_client, mock_send, mock_ontap_client, cfn_event
+    ):
         mock_get_client.return_value = mock_ontap_client
         cfn_event["RequestType"] = "Delete"
         cfn_event["PhysicalResourceId"] = "ontap-security-existing-123"

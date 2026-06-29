@@ -10,7 +10,9 @@ configure_rules:
   E3012:
     strict: true
 
-ignore_checks: []
+ignore_checks:
+  - W1001  # Conditional resource references — design pattern for "Bring Your Own VPC" mode
+  - W1020  # Unnecessary Fn::Sub — cosmetic, doesn't affect deployment
 
 regions:
   - ap-northeast-1

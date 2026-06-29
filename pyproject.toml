@@ -1,0 +1,14 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]  # Line length handled by formatter
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]  # Allow late imports in tests (env var setup)
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "shared/tests"]
+addopts = "-v --tb=short"
