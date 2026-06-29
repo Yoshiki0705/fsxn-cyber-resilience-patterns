@@ -211,6 +211,31 @@ Resources:
         - !Ref ScannerInstanceRole
 
   # ---------------------------------------------------------------
+  # Launch Templates (IMDSv2 enforcement)
+  # ---------------------------------------------------------------
+  VscanLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Condition: DeployVscan
+    Properties:
+      LaunchTemplateName: !Sub '${ProjectName}-vscan-lt-${Environment}'
+      LaunchTemplateData:
+        MetadataOptions:
+          HttpEndpoint: enabled
+          HttpTokens: required
+          HttpPutResponseHopLimit: 1
+
+  DeepInstinctLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Condition: DeployDeepInstinct
+    Properties:
+      LaunchTemplateName: !Sub '${ProjectName}-deep-instinct-lt-${Environment}'
+      LaunchTemplateData:
+        MetadataOptions:
+          HttpEndpoint: enabled
+          HttpTokens: required
+          HttpPutResponseHopLimit: 1
+
+  # ---------------------------------------------------------------
   # TrendAI Vision One - Vscan Server (ICAP)
   # ---------------------------------------------------------------
   VscanInstance:
@@ -219,6 +244,9 @@ Resources:
     DeletionPolicy: Delete
     UpdateReplacePolicy: Delete
     Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref VscanLaunchTemplate
+        Version: !GetAtt VscanLaunchTemplate.LatestVersionNumber
       InstanceType: !Ref VscanInstanceType
       ImageId: !Ref VscanAmiId
       SubnetId: !Ref SubnetSecurity1Id
@@ -281,6 +309,9 @@ Resources:
     DeletionPolicy: Delete
     UpdateReplacePolicy: Delete
     Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref DeepInstinctLaunchTemplate
+        Version: !GetAtt DeepInstinctLaunchTemplate.LatestVersionNumber
       InstanceType: !Ref DeepInstinctInstanceType
       ImageId: !Ref DeepInstinctAmiId
       SubnetId: !Ref SubnetSecurity1Id

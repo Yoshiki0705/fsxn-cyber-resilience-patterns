@@ -1,0 +1,229 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  FSx for ONTAP Cyber Resilience - Observability Stack.
+  CloudWatch Dashboard for security metrics visualization and
+  CloudWatch Alarms for proactive security event detection.
+
+# -------------------------------------------------------------------
+# Parameters
+# -------------------------------------------------------------------
+Parameters:
+  ProjectName:
+    Type: String
+    Default: fsxn-cyber-resilience
+    Description: Project name used for resource naming and tagging.
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - production
+    Description: Deployment environment.
+
+  SecurityAlertTopicArn:
+    Type: String
+    Description: SNS Topic ARN for security alert notifications (from Event-Driven Stack).
+
+# -------------------------------------------------------------------
+# Resources
+# -------------------------------------------------------------------
+Resources:
+
+  # ---------------------------------------------------------------
+  # CloudWatch Dashboard — Security Monitoring
+  # ---------------------------------------------------------------
+  SecurityDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub '${ProjectName}-security-${Environment}'
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0, "y": 0, "width": 6, "height": 6,
+              "properties": {
+                "title": "Security Events Received",
+                "region": "${AWS::Region}",
+                "metrics": [["FsxOntapCyberResilience", "SecurityEventsReceived", "Environment", "${Environment}", "Project", "${ProjectName}"]],
+                "stat": "Sum",
+                "period": 300
+              }
+            },
+            {
+              "type": "metric",
+              "x": 6, "y": 0, "width": 6, "height": 6,
+              "properties": {
+                "title": "Malware Detected",
+                "region": "${AWS::Region}",
+                "metrics": [["FsxOntapCyberResilience", "MalwareDetected", "Environment", "${Environment}", "Project", "${ProjectName}"]],
+                "stat": "Sum",
+                "period": 300,
+                "annotations": {"horizontal": [{"value": 10, "label": "Burst threshold", "color": "#ff0000"}]}
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12, "y": 0, "width": 6, "height": 6,
+              "properties": {
+                "title": "Ransomware Alerts (ARP)",
+                "region": "${AWS::Region}",
+                "metrics": [["FsxOntapCyberResilience", "RansomwareAlerts", "Environment", "${Environment}", "Project", "${ProjectName}"]],
+                "stat": "Sum",
+                "period": 300
+              }
+            },
+            {
+              "type": "metric",
+              "x": 18, "y": 0, "width": 6, "height": 6,
+              "properties": {
+                "title": "Quarantine Actions",
+                "region": "${AWS::Region}",
+                "metrics": [["FsxOntapCyberResilience", "QuarantineExecuted", "Environment", "${Environment}", "Project", "${ProjectName}"]],
+                "stat": "Sum",
+                "period": 300
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0, "y": 6, "width": 8, "height": 6,
+              "properties": {
+                "title": "Scan Latency (p99)",
+                "region": "${AWS::Region}",
+                "metrics": [["FsxOntapCyberResilience", "ScanLatencyP99", "Environment", "${Environment}", "Project", "${ProjectName}"]],
+                "stat": "p99",
+                "period": 60,
+                "annotations": {"horizontal": [{"value": 100, "label": "SLA threshold", "color": "#ff7f0e"}]}
+              }
+            },
+            {
+              "type": "metric",
+              "x": 8, "y": 6, "width": 8, "height": 6,
+              "properties": {
+                "title": "DLQ Messages",
+                "region": "${AWS::Region}",
+                "metrics": [["FsxOntapCyberResilience", "DlqMessages", "Environment", "${Environment}", "Project", "${ProjectName}"]],
+                "stat": "Maximum",
+                "period": 60
+              }
+            },
+            {
+              "type": "metric",
+              "x": 16, "y": 6, "width": 8, "height": 6,
+              "properties": {
+                "title": "False Positives (Daily)",
+                "region": "${AWS::Region}",
+                "metrics": [["FsxOntapCyberResilience", "FalsePositives", "Environment", "${Environment}", "Project", "${ProjectName}"]],
+                "stat": "Sum",
+                "period": 86400
+              }
+            }
+          ]
+        }
+
+  # ---------------------------------------------------------------
+  # CloudWatch Alarms — Security Events
+  # ---------------------------------------------------------------
+  MalwareBurstAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-malware-burst-${Environment}'
+      AlarmDescription: >
+        CRITICAL: 10 or more malware detections in 5 minutes indicates
+        potential active attack or worm propagation.
+      Namespace: FsxOntapCyberResilience
+      MetricName: MalwareDetected
+      Dimensions:
+        - Name: Environment
+          Value: !Ref Environment
+        - Name: Project
+          Value: !Ref ProjectName
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 10
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref SecurityAlertTopicArn
+      TreatMissingData: notBreaching
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Layer
+          Value: observability
+
+  RansomwareAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-ransomware-alert-${Environment}'
+      AlarmDescription: >
+        CRITICAL: ARP ransomware detection — immediate investigation required.
+        Volume quarantine may have been triggered automatically.
+      Namespace: FsxOntapCyberResilience
+      MetricName: RansomwareAlerts
+      Dimensions:
+        - Name: Environment
+          Value: !Ref Environment
+        - Name: Project
+          Value: !Ref ProjectName
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref SecurityAlertTopicArn
+      TreatMissingData: notBreaching
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Layer
+          Value: observability
+
+  ScanLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-scan-latency-high-${Environment}'
+      AlarmDescription: >
+        WARNING: Scan latency p99 exceeds 100ms — scanner performance degradation.
+        Check scanner health, consider scaling or filter tuning.
+      Namespace: FsxOntapCyberResilience
+      MetricName: ScanLatencyP99
+      Dimensions:
+        - Name: Environment
+          Value: !Ref Environment
+        - Name: Project
+          Value: !Ref ProjectName
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 100
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref SecurityAlertTopicArn
+      TreatMissingData: notBreaching
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Layer
+          Value: observability
+
+# -------------------------------------------------------------------
+# Outputs
+# -------------------------------------------------------------------
+Outputs:
+  DashboardName:
+    Description: CloudWatch Dashboard name
+    Value: !Ref SecurityDashboard
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-DashboardName'
+
+  MalwareBurstAlarmArn:
+    Description: Malware burst alarm ARN
+    Value: !GetAtt MalwareBurstAlarm.Arn
+
+  RansomwareAlarmArn:
+    Description: Ransomware alert alarm ARN
+    Value: !GetAtt RansomwareAlarm.Arn

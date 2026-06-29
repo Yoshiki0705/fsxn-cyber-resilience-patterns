@@ -768,6 +768,65 @@ Resources:
       CidrIp: !Ref VpcCidr
       Description: HTTPS to VPC Endpoints and ONTAP REST API
 
+  # ---------------------------------------------------------------
+  # VPC Flow Logs
+  # ---------------------------------------------------------------
+  FlowLogLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: CreateNewVpc
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub '/aws/vpc/flowlogs/${ProjectName}-${Environment}'
+      RetentionInDays: 90
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Layer
+          Value: observability
+
+  FlowLogRole:
+    Type: AWS::IAM::Role
+    Condition: CreateNewVpc
+    Properties:
+      RoleName: !Sub '${ProjectName}-flow-log-role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: vpc-flow-logs.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: FlowLogPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                Resource: !GetAtt FlowLogLogGroup.Arn
+
+  VpcFlowLog:
+    Type: AWS::EC2::FlowLog
+    Condition: CreateNewVpc
+    Properties:
+      ResourceId: !Ref Vpc
+      ResourceType: VPC
+      TrafficType: ALL
+      LogDestinationType: cloud-watch-logs
+      LogGroupName: !Sub '/aws/vpc/flowlogs/${ProjectName}-${Environment}'
+      DeliverLogsPermissionArn: !GetAtt FlowLogRole.Arn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Layer
+          Value: observability
+
 # -------------------------------------------------------------------
 # Outputs (for cross-stack references — works with both new and existing VPC)
 # -------------------------------------------------------------------
