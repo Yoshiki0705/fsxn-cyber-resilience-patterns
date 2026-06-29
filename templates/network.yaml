@@ -115,6 +115,7 @@ Parameters:
 Conditions:
   CreateNatGateway: !Equals [!Ref EnableNatGateway, 'true']
   CreateNewVpc: !Equals [!Ref UseExistingVpc, 'false']
+  HasActiveDirectory: !Not [!Equals [!Ref ExistingActiveDirectoryId, '']]
 
 # -------------------------------------------------------------------
 # Resources
@@ -944,6 +945,7 @@ Outputs:
       Name: !Sub '${ProjectName}-${Environment}-NatGatewayId'
 
   ActiveDirectoryId:
+    Condition: HasActiveDirectory
     Description: Active Directory ID (for SVM AD join)
     Value: !Ref ExistingActiveDirectoryId
     Export:

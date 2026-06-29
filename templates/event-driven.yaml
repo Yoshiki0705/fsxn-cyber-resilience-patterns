@@ -222,7 +222,7 @@ Resources:
               "Parameters": {
                 "TopicArn": "${SecurityAlertTopic}",
                 "Subject": "CRITICAL: Security Event - Quarantine Executed",
-                "Message.$": "States.Format('Volume {} has been quarantined. Snapshot: {}. Trigger: {}', $.detail.volumeId, $.snapshot.Snapshot.SnapshotId, $.detail-type)"
+                "Message.$": "States.Format('Volume {} quarantined. Severity: {}', $.detail.volumeId, $.detail.severity)"
               },
               "Next": "WaitForApproval"
             },
