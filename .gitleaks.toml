@@ -27,6 +27,7 @@ paths = [
     '''node_modules/''',
     '''\.git/''',
     '''parameters/''',
+    '''docs/''',
 ]
 # Test files use RFC-5737/placeholder values (123456789012, 10.0.x.x) per project convention.
 regexes = [
