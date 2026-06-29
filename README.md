@@ -24,11 +24,20 @@ This repository provides reference architectures and deployable patterns for pro
 │   ├── deep-instinct/            # Deep Instinct for NetApp ONTAP patterns
 │   ├── ontap-native/             # ARP, FPolicy, SnapLock, MAV configurations
 │   ├── event-driven-response/    # FPolicy → EventBridge → Step Functions
-│   └── observability/            # Audit log shipping & SIEM integration
-├── shared/                       # Shared modules and utilities
+│   ├── observability/            # Security metrics & dashboard
+│   └── shared/                   # ONTAP REST API client library
+├── templates/                    # CloudFormation templates
+│   ├── main.yaml                 # Root nested stack orchestrator
+│   ├── network.yaml              # VPC, subnets, SGs, VPC Endpoints, Flow Logs
+│   ├── storage.yaml              # FSx for ONTAP, KMS, ARP/FPolicy Custom Resource
+│   ├── event-driven.yaml         # SQS, EventBridge, Step Functions, Lambda
+│   ├── scanning.yaml             # TrendAI & Deep Instinct EC2 instances
+│   └── observability.yaml        # CloudWatch Dashboard & Alarms
+├── shared/tests/                 # Shared library unit tests
+├── tests/                        # Lambda & template tests
 ├── security/                     # cfn-guard rules, security policies
 ├── docs/                         # Architecture diagrams, comparison docs
-├── scripts/                      # Automation and deployment scripts
+├── scripts/                      # Deployment & packaging automation
 └── .github/workflows/            # CI/CD pipelines
 ```
 

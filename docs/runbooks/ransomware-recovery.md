@@ -200,3 +200,76 @@ showmount -e <svm-management-ip>
 | L2 | Multiple volumes / active encryption | Security Manager + Storage Admin |
 | L3 | Business-critical data affected | CISO + Executive team |
 | External | Law enforcement needed | Legal team + External IR firm |
+
+
+---
+
+## 自動隔離ワークフローの承認操作 / Quarantine Approval Procedure
+
+### 概要
+
+マルウェア検知時、Step Functions の Quarantine Workflow が自動実行される:
+1. Forensic Snapshot 作成
+2. Export Policy 制限（アクセス遮断）
+3. SNS アラート送信
+4. **承認待ち** (Approval Queue — 24 時間タイムアウト)
+
+### 承認キューの確認
+
+```bash
+# Approval Queue のメッセージ確認
+QUEUE_URL=$(aws cloudformation describe-stacks \
+  --stack-name fsxn-cyber-resilience-events-dev \
+  --query 'Stacks[0].Outputs[?OutputKey==`SecurityEventQueueUrl`].OutputValue' \
+  --output text --region ap-northeast-1)
+
+aws sqs receive-message --queue-url "$QUEUE_URL" --max-number-of-messages 1
+```
+
+### 承認 (Approve — アクセス復旧)
+
+調査の結果、誤検知（False Positive）と判断した場合:
+
+```bash
+# Step Functions タスクトークンを使用してアクセス復旧を承認
+aws stepfunctions send-task-success \
+  --task-token "<taskToken from approval message>" \
+  --task-output '{"approved": true}'
+```
+
+これにより:
+- Export Policy がデフォルトルールに復旧
+- ボリュームへのアクセスが再開
+
+### 拒否 (Reject — フォレンジック継続)
+
+攻撃が確認された場合:
+
+```bash
+# 拒否 → FlexClone 作成 (フォレンジック用)
+aws stepfunctions send-task-success \
+  --task-token "<taskToken from approval message>" \
+  --task-output '{"approved": false}'
+```
+
+これにより:
+- ボリュームは隔離状態を維持
+- FlexClone が作成され、フォレンジック環境として提供
+
+### タイムアウト (24 時間経過)
+
+承認・拒否がない場合、24 時間後に自動エスカレーション:
+- SNS で「ESCALATION: Approval Timeout」通知
+- ボリュームは隔離状態のまま
+
+### 手動復旧 (ワークフロー外)
+
+Step Functions を経由せず直接復旧する場合:
+
+```bash
+# ONTAP REST API で Export Policy を手動復旧
+curl -k -u fsxadmin:<password> \
+  -X POST "https://<management-ip>/api/protocols/nfs/export-policies/<policy-id>/rules" \
+  -H "Content-Type: application/json" \
+  -d '{"clients":[{"match":"0.0.0.0/0"}],"ro_rule":["sys"],"rw_rule":["sys"],"superuser":["sys"]}'
+```

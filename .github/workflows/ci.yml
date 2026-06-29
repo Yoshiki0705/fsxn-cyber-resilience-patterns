@@ -6,6 +6,7 @@ on:
     paths:
       - 'templates/**'
       - 'solutions/**'
+      - 'shared/**'
       - 'tests/**'
       - 'security/guard-rules/**'
       - 'requirements*.txt'
@@ -16,6 +17,7 @@ on:
     paths:
       - 'templates/**'
       - 'solutions/**'
+      - 'shared/**'
       - 'tests/**'
       - 'security/guard-rules/**'
       - 'requirements*.txt'
@@ -73,9 +75,18 @@ jobs:
           pip install pip-audit
           pip-audit -r requirements.txt --output json || true
 
+      - name: Validate Lambda packaging
+        run: |
+          ./scripts/package-lambdas.sh
+          echo "Validating zip integrity..."
+          for zip in lambda-packages/*.zip; do
+            unzip -t "$zip" > /dev/null || exit 1
+          done
+          echo "All Lambda packages valid."
+
       - name: Run pytest
         run: |
-          pytest tests/ shared/tests/ -v --tb=short --junitxml=test-results.xml
+          pytest tests/ shared/tests/ -v --tb=short --cov=solutions --cov-report=term-missing --cov-fail-under=80 --junitxml=test-results.xml
 
       - name: Upload test results
         if: always()
