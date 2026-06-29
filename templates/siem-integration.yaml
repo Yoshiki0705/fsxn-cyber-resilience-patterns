@@ -1,0 +1,240 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  FSx for ONTAP Cyber Resilience - SIEM Integration Stack (Phase 3).
+  Optional stack: Security Hub publisher, SIEM forwarder Lambda,
+  compliance collector. Each component conditionally deployed.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: fsxn-cyber-resilience
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, production]
+
+  EnableSecurityHub:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Enable Security Hub integration.
+
+  EnableSiemForwarder:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Enable third-party SIEM forwarder (Splunk/QRadar/CEF).
+
+  EnableComplianceCollector:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Enable daily compliance evidence collection.
+
+  SiemFormat:
+    Type: String
+    Default: splunk
+    AllowedValues: [splunk, qradar, cef]
+    Description: SIEM output format (when EnableSiemForwarder is true).
+
+  SiemEndpoint:
+    Type: String
+    Default: ''
+    Description: HTTPS endpoint URL for SIEM delivery.
+
+  SiemSecretArn:
+    Type: String
+    Default: ''
+    Description: Secrets Manager ARN for SIEM authentication credentials.
+
+  SecurityEventBusName:
+    Type: String
+    Description: EventBridge bus name (from Event-Driven Stack output).
+
+  ManagementEndpoint:
+    Type: String
+    Default: ''
+    Description: FSx for ONTAP management endpoint (for compliance collector).
+
+  FsxAdminSecretArn:
+    Type: String
+    Default: ''
+    Description: Secrets Manager ARN for fsxadmin (for compliance collector).
+
+  ComplianceReportBucket:
+    Type: String
+    Default: ''
+    Description: S3 bucket for compliance reports (Object Lock enabled).
+
+  SecurityAlertTopicArn:
+    Type: String
+    Description: SNS topic ARN for alerts.
+
+  LambdaArtifactBucket:
+    Type: String
+    Default: ''
+    Description: S3 bucket for Lambda code packages.
+
+Conditions:
+  DeploySecurityHub: !Equals [!Ref EnableSecurityHub, 'true']
+  DeploySiemForwarder: !Equals [!Ref EnableSiemForwarder, 'true']
+  DeployComplianceCollector: !Equals [!Ref EnableComplianceCollector, 'true']
+
+Resources:
+
+  # ---------------------------------------------------------------
+  # Security Hub Publisher
+  # ---------------------------------------------------------------
+  SecurityHubPublisherRole:
+    Type: AWS::IAM::Role
+    Condition: DeploySecurityHub
+    Properties:
+      RoleName: !Sub '${ProjectName}-securityhub-role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: SecurityHubPublish
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: securityhub:BatchImportFindings
+                Resource: '*'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+  SecurityHubPublisherLambda:
+    Type: AWS::Lambda::Function
+    Condition: DeploySecurityHub
+    Properties:
+      FunctionName: !Sub '${ProjectName}-securityhub-publisher-${Environment}'
+      Runtime: python3.12
+      Handler: security_hub_publisher.handler
+      Timeout: 30
+      MemorySize: 128
+      Architectures: [arm64]
+      Role: !GetAtt SecurityHubPublisherRole.Arn
+      Environment:
+        Variables:
+          PRODUCT_ARN: !Sub 'arn:${AWS::Partition}:securityhub:${AWS::Region}:${AWS::AccountId}:product/${AWS::AccountId}/${ProjectName}'
+          ENVIRONMENT: !Ref Environment
+      Code:
+        ZipFile: |
+          # Placeholder — use package-lambdas.sh for full implementation
+          def handler(event, context):
+              return {"statusCode": 200}
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Layer
+          Value: siem
+
+  SecurityHubEventRule:
+    Type: AWS::Events::Rule
+    Condition: DeploySecurityHub
+    Properties:
+      Name: !Sub '${ProjectName}-to-securityhub-${Environment}'
+      EventBusName: !Ref SecurityEventBusName
+      State: ENABLED
+      EventPattern:
+        source:
+          - prefix: 'fsxn.cyber-resilience'
+        detail-type:
+          - MalwareDetected
+          - RansomwareDetected
+          - SuspiciousActivity
+      Targets:
+        - Id: SecurityHubLambda
+          Arn: !GetAtt SecurityHubPublisherLambda.Arn
+
+  SecurityHubLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Condition: DeploySecurityHub
+    Properties:
+      FunctionName: !Ref SecurityHubPublisherLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SecurityHubEventRule.Arn
+
+  # ---------------------------------------------------------------
+  # SIEM Forwarder
+  # ---------------------------------------------------------------
+  SiemForwarderQueue:
+    Type: AWS::SQS::Queue
+    Condition: DeploySiemForwarder
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      QueueName: !Sub '${ProjectName}-siem-forwarder-${Environment}'
+      VisibilityTimeout: 300
+      ReceiveMessageWaitTimeSeconds: 20
+      KmsMasterKeyId: alias/aws/sqs
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # ---------------------------------------------------------------
+  # Compliance Collector
+  # ---------------------------------------------------------------
+  ComplianceCollectorRole:
+    Type: AWS::IAM::Role
+    Condition: DeployComplianceCollector
+    Properties:
+      RoleName: !Sub '${ProjectName}-compliance-role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: CompliancePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ProjectName}-*'
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${ComplianceReportBucket}/*'
+              - Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref SecurityAlertTopicArn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+  ComplianceCollectorSchedule:
+    Type: AWS::Events::Rule
+    Condition: DeployComplianceCollector
+    Properties:
+      Name: !Sub '${ProjectName}-compliance-daily-${Environment}'
+      ScheduleExpression: 'cron(0 1 * * ? *)'
+      State: ENABLED
+      Targets:
+        - Id: ComplianceLambdaPlaceholder
+          Arn: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectName}-compliance-${Environment}'
+
+Outputs:
+  SecurityHubPublisherArn:
+    Condition: DeploySecurityHub
+    Description: Security Hub publisher Lambda ARN
+    Value: !GetAtt SecurityHubPublisherLambda.Arn
+
+  SiemForwarderQueueUrl:
+    Condition: DeploySiemForwarder
+    Description: SIEM forwarder SQS queue URL
+    Value: !Ref SiemForwarderQueue

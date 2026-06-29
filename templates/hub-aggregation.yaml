@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  FSx for ONTAP Cyber Resilience - Hub Aggregation (Phase 3).
+  Central security monitoring account: aggregated EventBridge bus
+  with cross-account receive policy for spoke accounts.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: fsxn-cyber-resilience
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, production]
+
+  OrganizationId:
+    Type: String
+    Default: ''
+    Description: >
+      AWS Organization ID (o-xxxxxxxxxx) to allow all member accounts.
+      If empty, use SpokeAccountIds for explicit account list.
+
+  SpokeAccountIds:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: >
+      Comma-separated list of spoke account IDs allowed to send events.
+      Used when OrganizationId is not provided.
+
+Conditions:
+  UseOrganization: !Not [!Equals [!Ref OrganizationId, '']]
+
+Resources:
+
+  # Central EventBridge bus for aggregated security events
+  HubEventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: !Sub '${ProjectName}-hub-${Environment}'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Layer
+          Value: observability
+
+  # Policy allowing spoke accounts to put events
+  HubEventBusPolicy:
+    Type: AWS::Events::EventBusPolicy
+    Properties:
+      EventBusName: !Ref HubEventBus
+      StatementId: AllowSpokeAccounts
+      Action: events:PutEvents
+      Principal: '*'
+      Condition:
+        Type: StringEquals
+        Key: 'aws:PrincipalOrgID'
+        Value: !If
+          - UseOrganization
+          - !Ref OrganizationId
+          - !Ref 'AWS::NoValue'
+
+  # Route aggregated events to notification
+  HubNotificationRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ProjectName}-hub-notify-${Environment}'
+      EventBusName: !Ref HubEventBus
+      State: ENABLED
+      EventPattern:
+        source:
+          - prefix: 'fsxn.cyber-resilience'
+        detail-type:
+          - MalwareDetected
+          - RansomwareDetected
+      Targets:
+        - Id: HubAlertTopic
+          Arn: !Ref HubAlertTopic
+
+  # Hub SNS topic for aggregated alerts
+  HubAlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${ProjectName}-hub-alerts-${Environment}'
+      KmsMasterKeyId: alias/aws/sns
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+Outputs:
+  HubEventBusArn:
+    Description: Hub EventBridge bus ARN (provide to spoke templates)
+    Value: !GetAtt HubEventBus.Arn
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-HubEventBusArn'
+
+  HubEventBusName:
+    Description: Hub EventBridge bus name
+    Value: !Ref HubEventBus
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-HubEventBusName'
+
+  HubAlertTopicArn:
+    Description: Hub SNS topic for aggregated security alerts
+    Value: !Ref HubAlertTopic
