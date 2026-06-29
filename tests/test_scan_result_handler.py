@@ -1,10 +1,10 @@
 """Unit tests for TrendAI scan_result_handler Lambda."""
+
 from __future__ import annotations
 
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -48,20 +48,32 @@ class TestNormalizeVerdict:
     """Tests for verdict normalization across formats."""
 
     def test_standard_format(self):
-        body = {"file_path": "/data/file.exe", "verdict": "infected", "malware_name": "Trojan.Gen"}
+        body = {
+            "file_path": "/data/file.exe",
+            "verdict": "infected",
+            "malware_name": "Trojan.Gen",
+        }
         result = _normalize_verdict(body)
         assert result["file_path"] == "/data/file.exe"
         assert result["verdict"] == "infected"
 
     def test_trendai_api_format(self):
-        body = {"filePath": "/data/file.exe", "scanResult": "INFECTED", "malwareName": "Ransom.WannaCry"}
+        body = {
+            "filePath": "/data/file.exe",
+            "scanResult": "INFECTED",
+            "malwareName": "Ransom.WannaCry",
+        }
         result = _normalize_verdict(body)
         assert result["file_path"] == "/data/file.exe"
         assert result["verdict"] == "infected"
         assert result["malware_name"] == "Ransom.WannaCry"
 
     def test_s3ap_batch_format(self):
-        body = {"objectKey": "/vol/data/suspicious.dll", "status": "MALICIOUS", "details": {"malwareName": "Exploit.CVE"}}
+        body = {
+            "objectKey": "/vol/data/suspicious.dll",
+            "status": "MALICIOUS",
+            "details": {"malwareName": "Exploit.CVE"},
+        }
         result = _normalize_verdict(body)
         assert result["file_path"] == "/vol/data/suspicious.dll"
         assert result["verdict"] == "infected"
@@ -128,7 +140,10 @@ class TestClassifySeverity:
 
     def test_ransomware_keywords(self):
         for keyword in ["ransom", "crypt", "locker", "wannacry"]:
-            verdict = {"verdict": "malicious", "malware_name": f"Test.{keyword}.variant"}
+            verdict = {
+                "verdict": "malicious",
+                "malware_name": f"Test.{keyword}.variant",
+            }
             assert _classify_severity(verdict) == "CRITICAL"
 
 
@@ -143,7 +158,15 @@ class TestHandler:
 
         event = {
             "Records": [
-                {"body": json.dumps({"file_path": "/vol/data/virus.exe", "verdict": "infected", "malware_name": "Trojan"})}
+                {
+                    "body": json.dumps(
+                        {
+                            "file_path": "/vol/data/virus.exe",
+                            "verdict": "infected",
+                            "malware_name": "Trojan",
+                        }
+                    )
+                }
             ]
         }
         result = handler(event, None)
@@ -163,7 +186,15 @@ class TestHandler:
 
         event = {
             "Records": [
-                {"body": json.dumps({"objectKey": "/vol/data/mal.dll", "status": "MALICIOUS", "details": {"malwareName": "Ransom.Lock"}})}
+                {
+                    "body": json.dumps(
+                        {
+                            "objectKey": "/vol/data/mal.dll",
+                            "status": "MALICIOUS",
+                            "details": {"malwareName": "Ransom.Lock"},
+                        }
+                    )
+                }
             ]
         }
         result = handler(event, None)

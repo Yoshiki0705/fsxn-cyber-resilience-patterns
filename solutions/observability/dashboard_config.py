@@ -3,6 +3,7 @@
 Generates the JSON widget definitions for a security-focused
 CloudWatch Dashboard deployed via CloudFormation.
 """
+
 from __future__ import annotations
 
 import json

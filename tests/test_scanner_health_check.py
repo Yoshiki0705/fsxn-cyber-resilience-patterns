@@ -1,10 +1,10 @@
 """Unit tests for scanner health check Lambda."""
+
 from __future__ import annotations
 
 import os
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 os.environ["SCANNER_IPS"] = "10.0.3.10,10.0.4.10"
 os.environ["ENVIRONMENT"] = "dev"
@@ -73,6 +73,7 @@ class TestHealthCheck:
     @patch("scanner_health_check.cloudwatch")
     def test_socket_timeout_is_unhealthy(self, mock_cw, mock_socket_class):
         import socket
+
         mock_sock = MagicMock()
         mock_sock.connect_ex.side_effect = socket.timeout("timed out")
         mock_socket_class.return_value = mock_sock

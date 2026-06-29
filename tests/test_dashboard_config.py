@@ -1,9 +1,9 @@
 """Unit tests for dashboard_config.py CloudWatch Dashboard generator."""
+
 from __future__ import annotations
 
 import json
 
-import pytest
 
 from dashboard_config import NAMESPACE, generate_dashboard_body
 

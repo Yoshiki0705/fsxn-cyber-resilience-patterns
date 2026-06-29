@@ -6,6 +6,7 @@ normalized security events to EventBridge for downstream processing.
 Event flow:
   DI Agent → CloudWatch Logs (or webhook) → This Lambda → EventBridge
 """
+
 from __future__ import annotations
 
 import json
@@ -41,7 +42,9 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     published_count = 0
     errors: list[str] = []
 
-    records = event.get("records", [event]) if "records" not in event else event["records"]
+    records = (
+        event.get("records", [event]) if "records" not in event else event["records"]
+    )
 
     for record in records:
         try:
@@ -56,18 +59,20 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 "Source": SOURCE,
                 "DetailType": detail_type,
                 "EventBusName": EVENT_BUS_NAME,
-                "Detail": json.dumps({
-                    "fileSystemId": FILE_SYSTEM_ID,
-                    "filePath": verdict["file_path"],
-                    "operation": verdict.get("operation", "write"),
-                    "verdict": verdict["classification"].upper(),
-                    "confidence": verdict["confidence"],
-                    "scannerName": "deep-instinct",
-                    "severity": severity,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "modelVersion": verdict.get("model_version", "unknown"),
-                    "threatFamily": verdict.get("threat_family", ""),
-                }),
+                "Detail": json.dumps(
+                    {
+                        "fileSystemId": FILE_SYSTEM_ID,
+                        "filePath": verdict["file_path"],
+                        "operation": verdict.get("operation", "write"),
+                        "verdict": verdict["classification"].upper(),
+                        "confidence": verdict["confidence"],
+                        "scannerName": "deep-instinct",
+                        "severity": severity,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "modelVersion": verdict.get("model_version", "unknown"),
+                        "threatFamily": verdict.get("threat_family", ""),
+                    }
+                ),
             }
 
             response = events_client.put_events(Entries=[entry])
@@ -112,7 +117,11 @@ def _parse_verdict(record: dict[str, Any]) -> dict[str, Any] | None:
     # Nested body format
     if "body" in record:
         try:
-            return json.loads(record["body"]) if isinstance(record["body"], str) else record["body"]
+            return (
+                json.loads(record["body"])
+                if isinstance(record["body"], str)
+                else record["body"]
+            )
         except (json.JSONDecodeError, TypeError):
             return None
 

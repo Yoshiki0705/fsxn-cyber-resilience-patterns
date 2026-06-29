@@ -1,4 +1,5 @@
 """Unit tests for security_metrics.py CloudWatch metrics publisher."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -14,7 +15,9 @@ def publisher():
     with patch("security_metrics.boto3.client") as mock_boto:
         mock_cw = MagicMock()
         mock_boto.return_value = mock_cw
-        pub = SecurityMetricsPublisher(environment="dev", project_name="fsxn-cyber-resilience")
+        pub = SecurityMetricsPublisher(
+            environment="dev", project_name="fsxn-cyber-resilience"
+        )
         pub._mock_cw = mock_cw  # Expose for assertions
         yield pub
 
@@ -42,7 +45,9 @@ class TestSecurityMetricsPublisher:
         assert metric_data["Unit"] == "Count"
 
     def test_put_metric_with_extra_dimensions(self, publisher):
-        publisher.put_metric("TestMetric", 1.0, dimensions=[{"Name": "Scanner", "Value": "trendai"}])
+        publisher.put_metric(
+            "TestMetric", 1.0, dimensions=[{"Name": "Scanner", "Value": "trendai"}]
+        )
 
         call_args = publisher._mock_cw.put_metric_data.call_args[1]
         dims = call_args["MetricData"][0]["Dimensions"]

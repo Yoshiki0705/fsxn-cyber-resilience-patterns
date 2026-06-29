@@ -5,11 +5,12 @@ Validates data transformations at each stage:
 
 All tests are mock-based (no real AWS calls).
 """
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from hypothesis import given, settings
@@ -61,7 +62,9 @@ QUARANTINE_RULE_PATTERN = {
 @pytest.fixture(autouse=True)
 def patch_event_bus():
     """Patch module-level EVENT_BUS_NAME for all tests in this file."""
-    with patch.object(event_transformer, "EVENT_BUS_NAME", "fsxn-cyber-resilience-security-dev"):
+    with patch.object(
+        event_transformer, "EVENT_BUS_NAME", "fsxn-cyber-resilience-security-dev"
+    ):
         yield
 
 
@@ -166,9 +169,15 @@ class TestStepFunctionsAslValidation:
 
     def test_asl_has_all_required_states(self, quarantine_asl):
         required = [
-            "CreateForensicSnapshot", "RestrictExportPolicy", "SendAlert",
-            "WaitForApproval", "ApprovalDecision", "RestoreAccess",
-            "CreateFlexClone", "NotifyFailure", "EscalateTimeout",
+            "CreateForensicSnapshot",
+            "RestrictExportPolicy",
+            "SendAlert",
+            "WaitForApproval",
+            "ApprovalDecision",
+            "RestoreAccess",
+            "CreateFlexClone",
+            "NotifyFailure",
+            "EscalateTimeout",
         ]
         for state in required:
             assert state in quarantine_asl["States"], f"Missing state: {state}"
@@ -195,14 +204,26 @@ class TestEventClassificationProperty:
     )
     @settings(max_examples=50)
     @patch.object(event_transformer, "events_client")
-    def test_all_valid_sources_produce_valid_eventbridge_source(self, mock_events, source, event_type, verdict):
+    def test_all_valid_sources_produce_valid_eventbridge_source(
+        self, mock_events, source, event_type, verdict
+    ):
         mock_events.put_events.return_value = {"FailedEntryCount": 0}
 
-        raw_event = {"source": source, "event_type": event_type, "verdict": verdict, "file_path": "/test"}
+        raw_event = {
+            "source": source,
+            "event_type": event_type,
+            "verdict": verdict,
+            "file_path": "/test",
+        }
         sqs_event = {"Records": [{"body": json.dumps(raw_event)}]}
 
         event_transformer.handler(sqs_event, None)
 
         entry = mock_events.put_events.call_args[1]["Entries"][0]
         assert entry["Source"].startswith("fsxn.cyber-resilience.")
-        assert entry["DetailType"] in {"MalwareDetected", "RansomwareDetected", "SuspiciousActivity", "FileEvent"}
+        assert entry["DetailType"] in {
+            "MalwareDetected",
+            "RansomwareDetected",
+            "SuspiciousActivity",
+            "FileEvent",
+        }
