@@ -25,18 +25,27 @@ This repository provides reference architectures and deployable patterns for pro
 │   ├── ontap-native/             # ARP, FPolicy, SnapLock, MAV configurations
 │   ├── event-driven-response/    # FPolicy → EventBridge → Step Functions
 │   ├── observability/            # Security metrics & dashboard
+│   ├── siem/                      # Security Hub, Splunk/QRadar/CEF connectors
+│   ├── compliance/               # Compliance evidence collection (SOC2/ISO27001)
 │   └── shared/                   # ONTAP REST API client library
 ├── templates/                    # CloudFormation templates
 │   ├── main.yaml                 # Root nested stack orchestrator
 │   ├── network.yaml              # VPC, subnets, SGs, VPC Endpoints, Flow Logs
 │   ├── storage.yaml              # FSx for ONTAP, KMS, ARP/FPolicy Custom Resource
 │   ├── event-driven.yaml         # SQS, EventBridge, Step Functions, Lambda
-│   ├── scanning.yaml             # TrendAI & Deep Instinct EC2 instances
-│   └── observability.yaml        # CloudWatch Dashboard & Alarms
+│   ├── scanning.yaml             # TrendAI & Deep Instinct EC2 (single instance)
+│   ├── scanning-ha.yaml          # Scanner ASG Multi-AZ (production HA)
+│   ├── observability.yaml        # CloudWatch Dashboard & Alarms
+│   ├── cost-scheduler.yaml       # Dev/staging instance stop/start automation
+│   ├── dr-replication.yaml       # SnapMirror lag monitoring
+│   ├── siem-integration.yaml     # Security Hub + SIEM + Compliance (optional)
+│   ├── hub-aggregation.yaml      # Multi-account hub EventBridge bus
+│   └── spoke-monitoring.yaml     # Multi-account spoke forwarding (StackSet)
+├── benchmarks/                   # Performance benchmark suite
 ├── shared/tests/                 # Shared library unit tests
-├── tests/                        # Lambda & template tests
+├── tests/                        # Lambda & template tests (285 tests)
 ├── security/                     # cfn-guard rules, security policies
-├── docs/                         # Architecture diagrams, comparison docs
+├── docs/                         # Architecture, runbooks, deployment guides
 ├── scripts/                      # Deployment & packaging automation
 └── .github/workflows/            # CI/CD pipelines
 ```
@@ -77,17 +86,26 @@ make test
 ### Deployment (requires AWS credentials)
 
 ```bash
-# Deploy network stack to dev environment
+# Deploy all core stacks (network → storage → events → scanning → observability)
+./scripts/deploy.sh dev all
+
+# Deploy individual stack
 ./scripts/deploy.sh dev network
 
-# Deploy all stacks
-./scripts/deploy.sh dev
+# Package Lambda functions (required before events stack)
+./scripts/deploy.sh dev package
 
-# Validate templates against AWS API
-make validate
+# Deploy SIEM integration (optional)
+aws cloudformation deploy --template-file templates/siem-integration.yaml \
+  --stack-name fsxn-cyber-resilience-siem-dev --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides EnableSecurityHub=true EnableSiemForwarder=false ...
+
+# Deploy multi-account spoke (via StackSet or individual deploy)
+aws cloudformation deploy --template-file templates/spoke-monitoring.yaml ...
 ```
 
 See [docs/architecture/overview.md](docs/architecture/overview.md) for the full architecture diagram.
+See [docs/deployment-guide-existing-fsxn.md](docs/deployment-guide-existing-fsxn.md) for existing environment setup.
 
 ## Why FSx for ONTAP for Cyber Resilience?
 
