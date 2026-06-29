@@ -14,6 +14,11 @@ import pytest
 os.environ["EVENT_BUS_NAME"] = "test-security-bus"
 os.environ["ENVIRONMENT"] = "dev"
 
+import event_transformer
+
+# Ensure module-level EVENT_BUS_NAME is set correctly for this test file
+event_transformer.EVENT_BUS_NAME = "test-security-bus"
+
 from event_transformer import (
     _classify_detail_type,
     _classify_severity,
