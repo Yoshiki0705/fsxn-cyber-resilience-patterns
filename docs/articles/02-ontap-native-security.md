@@ -28,6 +28,9 @@ Day 0: Enable ARP in dry_run mode (learning)
 Day 30+: Transition to enabled (active protection)
 ```
 
+> **制約**: ARP は FlexVol のみ対応。FlexGroup は ONTAP 9.13.1+ で対応。
+> FSx for ONTAP のボリュームタイプを確認してから有効化すること。
+
 In our architecture, the **ARP Lifecycle Manager** automates this:
 - DynamoDB tracks learning start date per volume
 - Daily EventBridge Scheduler triggers a Lambda check
@@ -112,3 +115,9 @@ Full implementation with CloudFormation templates, Custom Resource handler, and 
 ---
 
 *Yoshiki Fujiwara — NetApp Cloud Solutions Architect, AWS Community Builder (Storage)*
+
+
+---
+
+**Series Navigation:**
+← [Part 1: Architecture Overview](01-architecture-overview.md) | [Part 3: Event-Driven Response →](03-event-driven-response.md)

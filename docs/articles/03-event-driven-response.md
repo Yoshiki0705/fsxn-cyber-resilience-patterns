@@ -124,3 +124,9 @@ Key files:
 ---
 
 *Yoshiki Fujiwara — NetApp Cloud Solutions Architect, AWS Community Builder (Storage)*
+
+
+---
+
+**Series Navigation:**
+← [Part 2: ONTAP Native Security](02-ontap-native-security.md) | [Part 4: Operating at Scale →](04-operating-at-scale.md)

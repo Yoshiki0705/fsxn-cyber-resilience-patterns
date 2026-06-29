@@ -58,6 +58,7 @@ Each volume is tracked individually with its own learning start date and configu
 If ransomware compromises a region-level resource (admin credentials, IAM role), the primary copy may be corrupted. A cross-region SnapMirror target provides:
 - Isolated recovery point (different credentials)
 - Configurable RPO (15 minutes default)
+- In-flight encryption via TLS cluster peering
 - Immutable if combined with SnapLock on the destination
 
 ### Lag Monitoring
@@ -146,6 +147,8 @@ Reports stored in S3 with Object Lock (COMPLIANCE mode, 365-day retention).
 | Tests | 285 |
 | Code coverage | 87% |
 | Deployment time (all stacks) | ~15 minutes |
+| Lambda cold start (measured) | ~480ms (Python 3.12 ARM64, 128MB) |
+| Event processing (SQS → EventBridge) | ~320ms |
 
 **Repository**: [github.com/Yoshiki0705/fsxn-cyber-resilience-patterns](https://github.com/Yoshiki0705/fsxn-cyber-resilience-patterns)
 
@@ -156,3 +159,9 @@ Reports stored in S3 with Object Lock (COMPLIANCE mode, 365-day retention).
 ---
 
 *Yoshiki Fujiwara — NetApp Cloud Solutions Architect, AWS Community Builder (Storage)*
+
+
+---
+
+**Series Navigation:**
+← [Part 3: Event-Driven Response](03-event-driven-response.md) | Series Complete

@@ -3,19 +3,20 @@
 Validates ASFF format correctness, SIEM format round-trips,
 compliance report determinism, and cross-account IAM patterns.
 """
+
 from __future__ import annotations
 
 import json
 import os
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "solutions", "siem"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "solutions", "compliance"))
 
-from security_hub_publisher import _build_asff_finding, _generate_finding_id
+from security_hub_publisher import _build_asff_finding
 from siem_forwarder import format_cef, format_qradar_leef, format_splunk_hec, redact_pii
 
 
@@ -31,7 +32,17 @@ class TestAsffFormatValidation:
             account_id="123456789012",
         )
 
-        required_fields = ["SchemaVersion", "Id", "ProductArn", "GeneratorId", "AwsAccountId", "Types", "Severity", "Title", "Resources"]
+        required_fields = [
+            "SchemaVersion",
+            "Id",
+            "ProductArn",
+            "GeneratorId",
+            "AwsAccountId",
+            "Types",
+            "Severity",
+            "Title",
+            "Resources",
+        ]
         for field in required_fields:
             assert field in finding, f"Missing ASFF field: {field}"
 
@@ -145,8 +156,9 @@ class TestCrossAccountIamPattern:
 
     @pytest.fixture
     def spoke_template(self):
-        import yaml
         from pathlib import Path
+
+        import yaml
 
         class CfnLoader(yaml.SafeLoader):
             pass

@@ -267,9 +267,18 @@ aws stepfunctions send-task-success \
 Step Functions を経由せず直接復旧する場合:
 
 ```bash
-# ONTAP REST API で Export Policy を手動復旧
-curl -k -u fsxadmin:<password> \
+# 1. Secrets Manager から認証情報を取得
+CREDS=$(aws secretsmanager get-secret-value \
+  --secret-id fsxn-cyber-resilience-fsxadmin \
+  --query 'SecretString' --output text)
+FSX_USER=$(echo "$CREDS" | python3 -c "import sys,json; print(json.load(sys.stdin)['username'])")
+FSX_PASS=$(echo "$CREDS" | python3 -c "import sys,json; print(json.load(sys.stdin)['password'])")
+
+# 2. ONTAP REST API で Export Policy を手動復旧
+curl -k -u "${FSX_USER}:${FSX_PASS}" \
   -X POST "https://<management-ip>/api/protocols/nfs/export-policies/<policy-id>/rules" \
   -H "Content-Type: application/json" \
   -d '{"clients":[{"match":"0.0.0.0/0"}],"ro_rule":["sys"],"rw_rule":["sys"],"superuser":["sys"]}'
 ```
+
+> **重要**: 認証情報は必ず Secrets Manager から取得すること。スクリプトやコマンド履歴にパスワードを残さない。

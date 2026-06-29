@@ -93,6 +93,8 @@ make setup && source .venv/bin/activate
 make test  # 285 tests, no AWS credentials needed
 ```
 
+For step-by-step deployment instructions, see the [Quick Start Deployment Guide](https://github.com/Yoshiki0705/fsxn-cyber-resilience-patterns/blob/main/docs/quickstart-deployment.md).
+
 ## Series Outline
 
 This is the first of a 4-part series:
