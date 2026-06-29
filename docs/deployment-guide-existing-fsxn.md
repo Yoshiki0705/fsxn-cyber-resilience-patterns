@@ -17,6 +17,43 @@ existing FSx for ONTAP file system without creating new storage resources.
 - Python 3.12+ (`make test` 用)
 - 対象 FSx for ONTAP が配置されている VPC のサブネット ID とセキュリティグループ ID
 
+### Lambda Packaging Prerequisites
+
+Event-Driven Stack のデプロイには Lambda コードパッケージの S3 アップロードが必要:
+
+1. **S3 バケット作成** (初回のみ):
+   - Server-Side Encryption (SSE-S3 or SSE-KMS) 有効化
+   - Versioning 有効化推奨
+   - Bucket Policy: Lambda execution role のみ `s3:GetObject` 許可
+
+2. **環境変数設定**:
+   ```bash
+   export LAMBDA_ARTIFACT_BUCKET=<your-artifact-bucket-name>
+   ```
+
+3. **パッケージング実行**:
+   ```bash
+   ./scripts/package-lambdas.sh --upload --bucket $LAMBDA_ARTIFACT_BUCKET
+   ```
+
+### Stack Deployment Order
+
+全スタックのデプロイ順序と依存関係:
+
+```
+1. package-lambdas.sh  (Lambda zip → S3)
+2. network.yaml        (VPC, Subnets, SGs, VPC Endpoints, Flow Logs)
+3. storage.yaml        (FSx for ONTAP, KMS, ARP/FPolicy Custom Resource)
+4. event-driven.yaml   (SQS, EventBridge, Step Functions, Lambda)
+5. scanning.yaml       (EC2 scanners: TrendAI Vscan / Deep Instinct)
+6. observability.yaml  (CloudWatch Dashboard, Alarms)
+```
+
+自動デプロイ:
+```bash
+./scripts/deploy.sh dev all
+```
+
 ## Step 1: 情報収集
 
 既存環境から以下の情報を取得:
