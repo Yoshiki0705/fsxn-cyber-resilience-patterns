@@ -1,0 +1,267 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  FSx for ONTAP Cyber Resilience - Scanner HA Stack (Phase 2).
+  Auto Scaling Groups for TrendAI Vscan and Deep Instinct scanners
+  with Multi-AZ deployment and automated health recovery.
+
+# -------------------------------------------------------------------
+# Parameters
+# -------------------------------------------------------------------
+Parameters:
+  ProjectName:
+    Type: String
+    Default: fsxn-cyber-resilience
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, production]
+
+  EnableVscan:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+
+  EnableDeepInstinct:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+
+  VscanInstanceType:
+    Type: String
+    Default: c6g.xlarge
+
+  DeepInstinctInstanceType:
+    Type: String
+    Default: c6i.xlarge
+
+  VscanAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+
+  DeepInstinctAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+  SubnetSecurity1Id:
+    Type: String
+  SubnetSecurity2Id:
+    Type: String
+  SgVscanId:
+    Type: String
+    Default: ''
+  SgDeepInstinctId:
+    Type: String
+    Default: ''
+
+  VscanDesiredCapacity:
+    Type: Number
+    Default: 2
+    MinValue: 1
+    MaxValue: 4
+
+  DeepInstinctDesiredCapacity:
+    Type: Number
+    Default: 2
+    MinValue: 1
+    MaxValue: 4
+
+# -------------------------------------------------------------------
+# Conditions
+# -------------------------------------------------------------------
+Conditions:
+  DeployVscan: !Equals [!Ref EnableVscan, 'true']
+  DeployDeepInstinct: !Equals [!Ref EnableDeepInstinct, 'true']
+
+# -------------------------------------------------------------------
+# Resources
+# -------------------------------------------------------------------
+Resources:
+
+  # ---------------------------------------------------------------
+  # IAM Role (shared — same as scanning.yaml)
+  # ---------------------------------------------------------------
+  ScannerInstanceRole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      RoleName: !Sub '${ProjectName}-scanner-ha-role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore'
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/CloudWatchAgentServerPolicy'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Layer
+          Value: scanning
+
+  ScannerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub '${ProjectName}-scanner-ha-profile-${Environment}'
+      Roles:
+        - !Ref ScannerInstanceRole
+
+  # ---------------------------------------------------------------
+  # Vscan Launch Template + ASG
+  # ---------------------------------------------------------------
+  VscanLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Condition: DeployVscan
+    Properties:
+      LaunchTemplateName: !Sub '${ProjectName}-vscan-ha-lt-${Environment}'
+      LaunchTemplateData:
+        InstanceType: !Ref VscanInstanceType
+        ImageId: !Ref VscanAmiId
+        IamInstanceProfile:
+          Arn: !GetAtt ScannerInstanceProfile.Arn
+        SecurityGroupIds:
+          - !Ref SgVscanId
+        MetadataOptions:
+          HttpEndpoint: enabled
+          HttpTokens: required
+          HttpPutResponseHopLimit: 1
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              VolumeSize: 50
+              VolumeType: gp3
+              Encrypted: true
+              DeleteOnTermination: true
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub '${ProjectName}-vscan-ha-${Environment}'
+              - Key: Project
+                Value: !Ref ProjectName
+              - Key: Environment
+                Value: !Ref Environment
+              - Key: Layer
+                Value: scanning
+              - Key: Component
+                Value: trendai-vscan
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            set -euo pipefail
+            dnf update -y
+            dnf install -y amazon-cloudwatch-agent nfs-utils amazon-ssm-agent
+            systemctl enable amazon-ssm-agent && systemctl start amazon-ssm-agent
+            echo "Vscan HA instance ready. Configure via SSM."
+
+  VscanAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Condition: DeployVscan
+    Properties:
+      AutoScalingGroupName: !Sub '${ProjectName}-vscan-asg-${Environment}'
+      LaunchTemplate:
+        LaunchTemplateId: !Ref VscanLaunchTemplate
+        Version: !GetAtt VscanLaunchTemplate.LatestVersionNumber
+      MinSize: "1"
+      MaxSize: "4"
+      DesiredCapacity: !Ref VscanDesiredCapacity
+      VPCZoneIdentifier:
+        - !Ref SubnetSecurity1Id
+        - !Ref SubnetSecurity2Id
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 300
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+          PropagateAtLaunch: false
+
+  # ---------------------------------------------------------------
+  # Deep Instinct Launch Template + ASG
+  # ---------------------------------------------------------------
+  DeepInstinctLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Condition: DeployDeepInstinct
+    Properties:
+      LaunchTemplateName: !Sub '${ProjectName}-di-ha-lt-${Environment}'
+      LaunchTemplateData:
+        InstanceType: !Ref DeepInstinctInstanceType
+        ImageId: !Ref DeepInstinctAmiId
+        IamInstanceProfile:
+          Arn: !GetAtt ScannerInstanceProfile.Arn
+        SecurityGroupIds:
+          - !Ref SgDeepInstinctId
+        MetadataOptions:
+          HttpEndpoint: enabled
+          HttpTokens: required
+          HttpPutResponseHopLimit: 1
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              VolumeSize: 100
+              VolumeType: gp3
+              Encrypted: true
+              DeleteOnTermination: true
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub '${ProjectName}-di-ha-${Environment}'
+              - Key: Project
+                Value: !Ref ProjectName
+              - Key: Environment
+                Value: !Ref Environment
+              - Key: Layer
+                Value: scanning
+              - Key: Component
+                Value: deep-instinct
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            set -euo pipefail
+            dnf update -y
+            dnf install -y amazon-cloudwatch-agent nfs-utils amazon-ssm-agent
+            systemctl enable amazon-ssm-agent && systemctl start amazon-ssm-agent
+            echo "Deep Instinct HA instance ready. Configure via SSM."
+
+  DeepInstinctAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Condition: DeployDeepInstinct
+    Properties:
+      AutoScalingGroupName: !Sub '${ProjectName}-di-asg-${Environment}'
+      LaunchTemplate:
+        LaunchTemplateId: !Ref DeepInstinctLaunchTemplate
+        Version: !GetAtt DeepInstinctLaunchTemplate.LatestVersionNumber
+      MinSize: "1"
+      MaxSize: "4"
+      DesiredCapacity: !Ref DeepInstinctDesiredCapacity
+      VPCZoneIdentifier:
+        - !Ref SubnetSecurity1Id
+        - !Ref SubnetSecurity2Id
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 300
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+          PropagateAtLaunch: false
+
+# -------------------------------------------------------------------
+# Outputs
+# -------------------------------------------------------------------
+Outputs:
+  VscanAsgName:
+    Condition: DeployVscan
+    Description: Vscan Auto Scaling Group name
+    Value: !Ref VscanAutoScalingGroup
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-VscanAsgName'
+
+  DeepInstinctAsgName:
+    Condition: DeployDeepInstinct
+    Description: Deep Instinct Auto Scaling Group name
+    Value: !Ref DeepInstinctAutoScalingGroup
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-DiAsgName'

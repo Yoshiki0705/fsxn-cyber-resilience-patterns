@@ -88,7 +88,7 @@ def _handle_create(properties: dict[str, Any]) -> dict[str, Any]:
     volume_uuids = properties.get("VolumeUuids", [])
     fpolicy_config = properties.get("FPolicyConfig", {})
 
-    results: dict[str, Any] = {"arp_volumes": [], "fpolicy_configured": False}
+    results: dict[str, Any] = {"arp_volumes": [], "fpolicy_configured": False, "mav_configured": False}
 
     # Step 1: Enable ARP in learning mode on specified volumes
     for vol_uuid in volume_uuids:
@@ -103,6 +103,13 @@ def _handle_create(properties: dict[str, Any]) -> dict[str, Any]:
     # Step 2: Configure FPolicy (if config provided)
     if fpolicy_config:
         _configure_fpolicy(client, svm_uuid, fpolicy_config)
+        results["fpolicy_configured"] = True
+
+    # Step 3: Configure MAV (if config provided)
+    mav_config = properties.get("MavConfig", {})
+    if mav_config:
+        _configure_mav(client, mav_config)
+        results["mav_configured"] = True
         results["fpolicy_configured"] = True
 
     results["physical_resource_id"] = f"ontap-security-{svm_uuid[:8]}-{int(time.time())}"
@@ -249,6 +256,61 @@ def _configure_fpolicy(
     # Enable policy
     client.enable_fpolicy(svm_uuid, policy_name, priority=1)
     logger.info(f"FPolicy policy '{policy_name}' enabled with priority 1")
+
+
+def _configure_mav(client: Any, config: dict[str, Any]) -> None:
+    """Configure Multi-Admin Verification (MAV) for destructive operations.
+
+    MAV requires ONTAP 9.11.1+. Protected operations require approval
+    from a configurable number of administrators before execution.
+
+    Args:
+        client: ONTAP API client.
+        config: MAV configuration dict with keys:
+            - enabled: Whether to enable MAV
+            - required_approvers: Minimum approvers (default: 2)
+            - approval_expiry_hours: Hours before request expires (default: 24)
+            - protected_operations: List of operations to protect
+    """
+    enabled = config.get("enabled", True)
+    required_approvers = config.get("required_approvers", 2)
+    approval_expiry = config.get("approval_expiry_hours", 24)
+    protected_operations = config.get("protected_operations", [
+        "volume delete",
+        "volume offline",
+        "security anti-ransomware volume disable",
+        "vserver export-policy rule delete",
+        "snapshot policy delete",
+    ])
+
+    try:
+        # Enable MAV globally
+        client._request("PATCH", "/security/multi-admin-verify", body={
+            "enabled": enabled,
+            "required_approvers": required_approvers,
+            "approval_expiry": f"PT{approval_expiry}H",
+        })
+        logger.info(f"MAV enabled: required_approvers={required_approvers}")
+
+        # Configure protected operations
+        for operation in protected_operations:
+            try:
+                client._request("POST", "/security/multi-admin-verify/rules", body={
+                    "operation": operation,
+                    "required_approvers": required_approvers,
+                })
+                logger.info(f"MAV rule created: {operation}")
+            except Exception as e:
+                if "duplicate" in str(e).lower() or "already exists" in str(e).lower():
+                    logger.info(f"MAV rule already exists: {operation}")
+                else:
+                    logger.warning(f"Failed to create MAV rule '{operation}': {e}")
+
+    except Exception as e:
+        if "not supported" in str(e).lower():
+            logger.warning(f"MAV not supported on this ONTAP version: {e}")
+        else:
+            raise
 
 
 def _get_ontap_client(properties: dict[str, Any]) -> Any:
