@@ -1,0 +1,82 @@
+[
+  {
+    "ParameterKey": "ProjectName",
+    "ParameterValue": "fsxn-cyber-resilience"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "VpcId",
+    "ParameterValue": "vpc-0123456789abcdef0"
+  },
+  {
+    "ParameterKey": "PrivateSubnet1Id",
+    "ParameterValue": "subnet-0aaa111122223333a"
+  },
+  {
+    "ParameterKey": "PrivateSubnet2Id",
+    "ParameterValue": "subnet-0bbb444455556666b"
+  },
+  {
+    "ParameterKey": "AdMode",
+    "ParameterValue": "create-new"
+  },
+  {
+    "ParameterKey": "AdDomainName",
+    "ParameterValue": "corp.example.com"
+  },
+  {
+    "ParameterKey": "AdShortName",
+    "ParameterValue": "CORP"
+  },
+  {
+    "ParameterKey": "AdAdminPassword",
+    "ParameterValue": "REPLACE_WITH_SECURE_PASSWORD"
+  },
+  {
+    "ParameterKey": "AdEdition",
+    "ParameterValue": "Standard"
+  },
+  {
+    "ParameterKey": "ExistingDirectoryId",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "SelfManagedDomainName",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "SelfManagedDnsIps",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "SelfManagedAdUsername",
+    "ParameterValue": "Admin"
+  },
+  {
+    "ParameterKey": "SelfManagedAdPassword",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "SelfManagedAdOu",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "WindowsInstanceType",
+    "ParameterValue": "t3.medium"
+  },
+  {
+    "ParameterKey": "LinuxInstanceType",
+    "ParameterValue": "t3.micro"
+  },
+  {
+    "ParameterKey": "KeyPairName",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "NetBiosName",
+    "ParameterValue": "FSXDEMO"
+  }
+]
