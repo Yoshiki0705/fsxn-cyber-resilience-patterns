@@ -1,0 +1,574 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  FSx for ONTAP Cyber Resilience - AD Demo Environment.
+  Deploys Active Directory infrastructure for SMB-based security patterns
+  (user blocking, ransomware response, FPolicy with CIFS).
+  Supports three AD modes: create-new, use-existing-managed, use-self-managed.
+
+# ===================================================================
+# AD Mode Decision Tree
+# ===================================================================
+# Do you already have an AD?
+#   No  → AdMode = create-new      (creates AWS Managed Microsoft AD)
+#   Yes → Is it AWS Managed AD?
+#           Yes → AdMode = use-existing-managed (provide DirectoryId)
+#           No  → AdMode = use-self-managed     (provide DNS IPs + domain)
+# ===================================================================
+
+# -------------------------------------------------------------------
+# Metadata
+# -------------------------------------------------------------------
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Project Settings
+        Parameters:
+          - ProjectName
+          - Environment
+      - Label:
+          default: Network Configuration
+        Parameters:
+          - VpcId
+          - PrivateSubnet1Id
+          - PrivateSubnet2Id
+      - Label:
+          default: AD Mode Selection
+        Parameters:
+          - AdMode
+      - Label:
+          default: "Pattern A: Create New AWS Managed AD"
+        Parameters:
+          - AdDomainName
+          - AdShortName
+          - AdAdminPassword
+          - AdEdition
+      - Label:
+          default: "Pattern B: Use Existing AWS Managed AD"
+        Parameters:
+          - ExistingDirectoryId
+      - Label:
+          default: "Pattern C: Self-Managed AD (on-prem / EC2)"
+        Parameters:
+          - SelfManagedDomainName
+          - SelfManagedDnsIps
+          - SelfManagedAdUsername
+          - SelfManagedAdPassword
+          - SelfManagedAdOu
+      - Label:
+          default: EC2 Instance Configuration
+        Parameters:
+          - WindowsInstanceType
+          - LinuxInstanceType
+          - KeyPairName
+          - NetBiosName
+    ParameterLabels:
+      AdMode:
+        default: AD Deployment Mode
+
+# -------------------------------------------------------------------
+# Parameters
+# -------------------------------------------------------------------
+Parameters:
+  ProjectName:
+    Type: String
+    Default: fsxn-cyber-resilience
+    Description: Project name used for resource naming and tagging.
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - production
+    Description: Deployment environment.
+
+  # -----------------------------------------------------------------
+  # Network
+  # -----------------------------------------------------------------
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID where AD and EC2 instances will be deployed.
+
+  PrivateSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: Private subnet (AZ1) for AD and EC2 instances.
+
+  PrivateSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: Private subnet (AZ2) for AD redundancy and multi-AZ.
+
+  # -----------------------------------------------------------------
+  # AD Mode
+  # -----------------------------------------------------------------
+  AdMode:
+    Type: String
+    Default: create-new
+    AllowedValues:
+      - create-new
+      - use-existing-managed
+      - use-self-managed
+    Description: >
+      AD deployment mode.
+      create-new: Provision a new AWS Managed Microsoft AD.
+      use-existing-managed: Reference an existing AWS Managed AD by DirectoryId.
+      use-self-managed: Use an on-premises or EC2-hosted AD (DNS IPs + credentials).
+
+  # -----------------------------------------------------------------
+  # Pattern A: Create New AD
+  # -----------------------------------------------------------------
+  AdDomainName:
+    Type: String
+    Default: corp.example.com
+    Description: >
+      FQDN for the new AWS Managed AD (Pattern A only).
+      Example: corp.example.com
+    AllowedPattern: '^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$'
+
+  AdShortName:
+    Type: String
+    Default: CORP
+    MaxLength: 15
+    Description: >
+      NetBIOS name for the new AD domain (Pattern A only).
+      Maximum 15 characters.
+    AllowedPattern: '^[A-Z][A-Z0-9-]{0,14}$'
+
+  AdAdminPassword:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: >
+      Admin password for the new AWS Managed AD (Pattern A only).
+      Must be 8-64 characters with at least one uppercase, lowercase, digit, and symbol.
+
+  AdEdition:
+    Type: String
+    Default: Standard
+    AllowedValues:
+      - Standard
+      - Enterprise
+    Description: >
+      AWS Managed AD edition. Standard supports up to 5,000 users.
+      Enterprise supports up to 500,000 users with trust relationships.
+
+  # -----------------------------------------------------------------
+  # Pattern B: Existing Managed AD
+  # -----------------------------------------------------------------
+  ExistingDirectoryId:
+    Type: String
+    Default: ''
+    Description: >
+      AWS Directory Service directory ID (Pattern B only).
+      Example: d-0123456789
+
+  # -----------------------------------------------------------------
+  # Pattern C: Self-Managed AD
+  # -----------------------------------------------------------------
+  SelfManagedDomainName:
+    Type: String
+    Default: ''
+    Description: >
+      FQDN of the self-managed AD domain (Pattern C only).
+      Example: onprem.example.com
+
+  SelfManagedDnsIps:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: >
+      Comma-separated DNS IP addresses of the self-managed AD (Pattern C only).
+      Example: 198.51.100.10,198.51.100.11
+
+  SelfManagedAdUsername:
+    Type: String
+    Default: Admin
+    Description: >
+      Username with delegated domain join permissions (Pattern C only).
+
+  SelfManagedAdPassword:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: >
+      Password for the self-managed AD service account (Pattern C only).
+
+  SelfManagedAdOu:
+    Type: String
+    Default: ''
+    Description: >
+      Organizational Unit distinguished name for computer objects (Pattern C only).
+      Example: OU=FSxComputers,OU=Servers,DC=onprem,DC=example,DC=com
+      Leave empty to use the default Computers container.
+
+  # -----------------------------------------------------------------
+  # EC2 Instances
+  # -----------------------------------------------------------------
+  WindowsInstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues:
+      - t3.small
+      - t3.medium
+      - t3.large
+      - m5.large
+      - m5.xlarge
+    Description: >
+      Instance type for Windows EC2 (domain-joined SMB client).
+      t3.medium recommended for demo/dev.
+
+  LinuxInstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - m5.large
+    Description: >
+      Instance type for Amazon Linux EC2 (NFS client).
+      t3.micro sufficient for demo.
+
+  KeyPairName:
+    Type: String
+    Default: ''
+    Description: >
+      EC2 Key Pair name for SSH/RDP access (optional).
+      SSM Session Manager / Fleet Manager is the primary access method.
+
+  NetBiosName:
+    Type: String
+    Default: FSXDEMO
+    MaxLength: 15
+    Description: >
+      NetBIOS name for the FSx for ONTAP SVM AD join.
+      Maximum 15 characters, unique within the AD domain.
+    AllowedPattern: '^[A-Z][A-Z0-9-]{0,14}$'
+
+# -------------------------------------------------------------------
+# Conditions
+# -------------------------------------------------------------------
+Conditions:
+  CreateNewAd: !Equals [!Ref AdMode, 'create-new']
+  UseExistingManaged: !Equals [!Ref AdMode, 'use-existing-managed']
+  UseSelfManaged: !Equals [!Ref AdMode, 'use-self-managed']
+  IsManagedAd: !Or
+    - !Condition CreateNewAd
+    - !Condition UseExistingManaged
+  HasKeyPair: !Not [!Equals [!Ref KeyPairName, '']]
+
+# -------------------------------------------------------------------
+# Resources
+# -------------------------------------------------------------------
+Resources:
+
+  # ===============================================================
+  # Security Groups
+  # ===============================================================
+
+  # ---------------------------------------------------------------
+  # SG: Windows EC2 (domain-joined SMB client)
+  # ---------------------------------------------------------------
+  WindowsClientSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${ProjectName} - Windows SMB client (AD domain-joined)'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3389
+          ToPort: 3389
+          CidrIp: 0.0.0.0/0
+          Description: RDP (use SSM Fleet Manager instead for production)
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-sg-windows-client-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: compute
+        - Key: Component
+          Value: windows-client
+
+  # ---------------------------------------------------------------
+  # SG: Linux EC2 (NFS client)
+  # ---------------------------------------------------------------
+  LinuxClientSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${ProjectName} - Linux NFS client'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH (use SSM Session Manager instead for production)
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-sg-linux-client-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: compute
+        - Key: Component
+          Value: linux-client
+
+  # ===============================================================
+  # IAM Role for EC2 (SSM + AD join)
+  # ===============================================================
+  Ec2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-ec2-demo-role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore'
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMDirectoryServiceAccess'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  Ec2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub '${ProjectName}-ec2-demo-profile-${Environment}'
+      Roles:
+        - !Ref Ec2InstanceRole
+
+  # ===============================================================
+  # Pattern A: AWS Managed Microsoft AD (create-new)
+  # ===============================================================
+  ManagedAd:
+    Type: AWS::DirectoryService::MicrosoftAD
+    Condition: CreateNewAd
+    Properties:
+      Name: !Ref AdDomainName
+      ShortName: !Ref AdShortName
+      Password: !Ref AdAdminPassword
+      Edition: !Ref AdEdition
+      VpcSettings:
+        VpcId: !Ref VpcId
+        SubnetIds:
+          - !Ref PrivateSubnet1Id
+          - !Ref PrivateSubnet2Id
+
+  # ===============================================================
+  # SSM Association: Automatic Domain Join (Pattern A / B)
+  # ===============================================================
+  # NOTE: Uses the AWS-managed document "AWS-JoinDirectoryServiceDomain".
+  # Do NOT use a custom SSM Document with aws:domainJoin — it fails with:
+  #   "Document schema version, 2.2, is not supported by association
+  #    that is created with instance id"
+  # This is a known limitation: aws:domainJoin only works correctly via
+  # the AWS-managed document. See:
+  # https://docs.aws.amazon.com/systems-manager/latest/userguide/sysman-state-assoc.html
+  # ---------------------------------------------------------------
+  DomainJoinAssociation:
+    Type: AWS::SSM::Association
+    Condition: IsManagedAd
+    Properties:
+      AssociationName: !Sub '${ProjectName}-auto-domain-join-${Environment}'
+      Name: AWS-JoinDirectoryServiceDomain
+      Targets:
+        - Key: InstanceIds
+          Values:
+            - !Ref WindowsInstance
+      Parameters:
+        directoryId:
+          - !If
+            - CreateNewAd
+            - !Ref ManagedAd
+            - !Ref ExistingDirectoryId
+        directoryName:
+          - !If
+            - CreateNewAd
+            - !Ref AdDomainName
+            - !Ref AdDomainName
+        dnsIpAddresses:
+          - !If
+            - CreateNewAd
+            - !Select [0, !GetAtt ManagedAd.DnsIpAddresses]
+            - !Ref 'AWS::NoValue'
+          - !If
+            - CreateNewAd
+            - !Select [1, !GetAtt ManagedAd.DnsIpAddresses]
+            - !Ref 'AWS::NoValue'
+
+  # ===============================================================
+  # Windows EC2 Instance (domain-joined SMB client)
+  # ===============================================================
+  WindowsInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Sub '{{resolve:ssm:/aws/service/ami-windows-latest/Windows_Server-2022-English-Full-Base}}'
+      InstanceType: !Ref WindowsInstanceType
+      SubnetId: !Ref PrivateSubnet1Id
+      SecurityGroupIds:
+        - !Ref WindowsClientSg
+      IamInstanceProfile: !Ref Ec2InstanceProfile
+      KeyName: !If
+        - HasKeyPair
+        - !Ref KeyPairName
+        - !Ref 'AWS::NoValue'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-windows-smb-client-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: compute
+        - Key: Component
+          Value: windows-client
+        - Key: DomainJoin
+          Value: 'true'
+      UserData:
+        Fn::Base64: !Sub |
+          <powershell>
+          # Install SSM Agent (usually pre-installed on Windows AMIs)
+          $ProgressPreference = 'SilentlyContinue'
+
+          # Configure Windows Firewall for FSx for ONTAP SMB access
+          New-NetFirewallRule -DisplayName "FSx SMB" -Direction Outbound -Protocol TCP -RemotePort 445 -Action Allow
+          New-NetFirewallRule -DisplayName "FSx DNS" -Direction Outbound -Protocol TCP -RemotePort 53 -Action Allow
+          New-NetFirewallRule -DisplayName "FSx DNS UDP" -Direction Outbound -Protocol UDP -RemotePort 53 -Action Allow
+          New-NetFirewallRule -DisplayName "FSx Kerberos" -Direction Outbound -Protocol TCP -RemotePort 88 -Action Allow
+
+          # Tag for SSM Fleet Manager discovery
+          Write-Output "Windows SMB client ready for domain join."
+          Write-Output "Use SSM Fleet Manager for RDP access."
+          </powershell>
+
+  # ===============================================================
+  # Amazon Linux EC2 Instance (NFS client)
+  # ===============================================================
+  LinuxInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64}}'
+      InstanceType: !Ref LinuxInstanceType
+      SubnetId: !Ref PrivateSubnet1Id
+      SecurityGroupIds:
+        - !Ref LinuxClientSg
+      IamInstanceProfile: !Ref Ec2InstanceProfile
+      KeyName: !If
+        - HasKeyPair
+        - !Ref KeyPairName
+        - !Ref 'AWS::NoValue'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-linux-nfs-client-${Environment}'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: compute
+        - Key: Component
+          Value: linux-client
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+
+          # Install NFS utilities
+          dnf install -y nfs-utils amazon-efs-utils
+
+          # Create mount points
+          mkdir -p /mnt/fsxn/production
+          mkdir -p /mnt/fsxn/audit
+
+          # Install useful tools for demo
+          dnf install -y jq tree bind-utils
+
+          echo "Linux NFS client ready."
+          echo "Mount FSx for ONTAP: mount -t nfs <svm-nfs-endpoint>:/production /mnt/fsxn/production"
+
+# -------------------------------------------------------------------
+# Outputs
+# -------------------------------------------------------------------
+Outputs:
+  AdMode:
+    Description: AD deployment mode used
+    Value: !Ref AdMode
+
+  DirectoryId:
+    Condition: CreateNewAd
+    Description: AWS Managed AD Directory ID (Pattern A)
+    Value: !Ref ManagedAd
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-DemoAdDirectoryId'
+
+  DomainName:
+    Description: AD domain FQDN
+    Value: !If
+      - CreateNewAd
+      - !Ref AdDomainName
+      - !If
+        - UseSelfManaged
+        - !Ref SelfManagedDomainName
+        - !Ref AdDomainName
+
+  DnsIpAddresses:
+    Condition: CreateNewAd
+    Description: DNS IP addresses of the new AWS Managed AD
+    Value: !Join
+      - ','
+      - !GetAtt ManagedAd.DnsIpAddresses
+
+  NetBiosName:
+    Description: NetBIOS name for SVM AD join
+    Value: !Ref NetBiosName
+
+  WindowsInstanceId:
+    Description: Windows EC2 instance ID (use SSM Fleet Manager for RDP)
+    Value: !Ref WindowsInstance
+
+  LinuxInstanceId:
+    Description: Linux EC2 instance ID (use SSM Session Manager for shell)
+    Value: !Ref LinuxInstance
+
+  WindowsInstancePrivateIp:
+    Description: Windows EC2 private IP address
+    Value: !GetAtt WindowsInstance.PrivateIp
+
+  LinuxInstancePrivateIp:
+    Description: Linux EC2 private IP address
+    Value: !GetAtt LinuxInstance.PrivateIp
+
+  SsmFleetManagerUrl:
+    Description: SSM Fleet Manager console URL for RDP access
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/systems-manager/managed-instances/rdp-connect?region=${AWS::Region}&instances=${WindowsInstance}'
+
+  # -----------------------------------------------------------------
+  # AD Port Requirements (informational)
+  # -----------------------------------------------------------------
+  # Ensure the following ports are open between FSx for ONTAP and AD:
+  #
+  # | Protocol | Port  | Service                        |
+  # |----------|-------|--------------------------------|
+  # | TCP      | 53    | DNS                            |
+  # | TCP      | 88    | Kerberos authentication        |
+  # | TCP      | 389   | LDAP                           |
+  # | TCP      | 445   | SMB / CIFS                     |
+  # | TCP      | 636   | LDAPS (LDAP over TLS)          |
+  # | TCP      | 3268  | Global Catalog                 |
+  # | TCP      | 9389  | AD Web Services (PowerShell)   |
+  # | UDP      | 53    | DNS                            |
+  # | UDP      | 88    | Kerberos authentication        |
+  # | UDP      | 389   | LDAP                           |
+  # -----------------------------------------------------------------
