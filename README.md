@@ -143,6 +143,9 @@ This project follows supply-chain security best practices:
 - Secret detection via gitleaks
 - Workflow security linting via zizmor
 - OpenSSF Scorecard monitoring
+- Automated dependency updates via Renovate (`renovate.json`) — groups Python (`pip_requirements`) and GitHub Actions updates, keeps Actions SHA-pinned (`pinDigests`), gates major bumps behind Dependency Dashboard approval, and enables vulnerability/OSV alerts
+
+> Renovate requires the [Renovate GitHub App](https://github.com/apps/renovate) to be enabled on this repository (separate one-time setup); the `renovate.json` in the repo root only configures its behavior.
 
 ## License
 

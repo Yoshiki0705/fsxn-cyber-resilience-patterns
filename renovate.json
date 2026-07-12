@@ -1,0 +1,42 @@
+{
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests",
+    ":semanticCommitsDisabled"
+  ],
+  "timezone": "Asia/Tokyo",
+  "schedule": ["before 6am on monday"],
+  "labels": ["dependencies"],
+  "commitMessagePrefix": "chore(deps):",
+  "dependencyDashboard": true,
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security"]
+  },
+  "osvVulnerabilityAlerts": true,
+  "packageRules": [
+    {
+      "description": "Group all GitHub Actions updates together; keep SHA pinning per repo supply-chain policy",
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions",
+      "pinDigests": true
+    },
+    {
+      "description": "Group Python dependency updates (requirements.txt / requirements-dev.txt)",
+      "matchManagers": ["pip_requirements"],
+      "groupName": "python-dependencies"
+    },
+    {
+      "description": "Require manual approval via the dependency dashboard for major version bumps",
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    }
+  ],
+  "ignorePaths": [
+    ".venv/**",
+    "node_modules/**",
+    "vendor/**",
+    ".pytest_cache/**",
+    "lambda-packages/**"
+  ]
+}
