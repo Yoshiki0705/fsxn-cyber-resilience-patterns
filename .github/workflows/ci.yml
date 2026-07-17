@@ -60,6 +60,7 @@ jobs:
           rules: 'security/guard-rules/'
           data: 'templates/'
           show-summary: 'fail'
+          checkout: 'false'
 
       - name: Run ruff (Python linter)
         run: |
