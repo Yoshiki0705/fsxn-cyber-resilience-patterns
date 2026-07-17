@@ -13,6 +13,8 @@ configure_rules:
 ignore_checks:
   - W1001  # Conditional resource references — design pattern for "Bring Your Own VPC" mode
   - W1020  # Unnecessary Fn::Sub — cosmetic, doesn't affect deployment
+  - W1030  # Ref type mismatch — SG IDs passed as String parameters (cross-stack pattern)
+  - W2001  # Unused parameters — parameters defined for future phases or cross-stack import
 
 regions:
   - ap-northeast-1

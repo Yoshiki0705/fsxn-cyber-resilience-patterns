@@ -175,6 +175,7 @@ Resources:
     UpdateReplacePolicy: Delete
     Properties:
       QueueName: !Sub '${ProjectName}-siem-forwarder-${Environment}'
+      MessageRetentionPeriod: 1209600  # 14 days (maximum)
       VisibilityTimeout: 300
       ReceiveMessageWaitTimeSeconds: 20
       KmsMasterKeyId: alias/aws/sqs
