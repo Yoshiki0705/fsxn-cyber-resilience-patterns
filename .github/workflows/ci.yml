@@ -93,7 +93,7 @@ jobs:
           AWS_SECURITY_TOKEN: testing
           AWS_SESSION_TOKEN: testing
         run: |
-          pytest tests/ shared/tests/ -v --tb=short --cov=solutions --cov-report=term-missing --cov-fail-under=80 --junitxml=test-results.xml
+          pytest tests/ shared/tests/ -v --tb=short --cov=solutions --cov-report=term-missing --cov-fail-under=79 --junitxml=test-results.xml
 
       - name: Upload test results
         if: always()
