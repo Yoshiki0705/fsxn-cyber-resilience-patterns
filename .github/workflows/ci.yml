@@ -86,6 +86,12 @@ jobs:
           echo "All Lambda packages valid."
 
       - name: Run pytest
+        env:
+          AWS_DEFAULT_REGION: ap-northeast-1
+          AWS_ACCESS_KEY_ID: testing
+          AWS_SECRET_ACCESS_KEY: testing
+          AWS_SECURITY_TOKEN: testing
+          AWS_SESSION_TOKEN: testing
         run: |
           pytest tests/ shared/tests/ -v --tb=short --cov=solutions --cov-report=term-missing --cov-fail-under=80 --junitxml=test-results.xml
 
