@@ -55,7 +55,7 @@ jobs:
         run: cfn-lint templates/*.yaml
 
       - name: Run cfn-guard
-        uses: aws-cloudformation/cloudformation-guard@d34a64e8bc0660203e3b4120793ed60c1de5761b # v0.0.11
+        uses: aws-cloudformation/cloudformation-guard@0e1dc63f667c80e3b9ed1aea2ba1cf6c8d588298 # action-v0.0.5
         with:
           rules: 'security/guard-rules/'
           data: 'templates/'
