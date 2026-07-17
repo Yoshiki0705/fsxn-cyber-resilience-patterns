@@ -2,6 +2,8 @@
 
 Multi-layered cyber resilience patterns for Amazon FSx for NetApp ONTAP — combining storage-native security, AI-powered threat prevention, and event-driven automated response.
 
+> **In plain terms**: If ransomware starts encrypting files on your NAS, this project detects it within seconds and automatically blocks the attacker's access at the storage layer — before a human responder can even open their laptop. It also creates a protected copy of your data at that moment, and can verify that copy is clean before you restore from it. Everything deploys as CloudFormation on AWS.
+
 ## Overview
 
 This repository provides reference architectures and deployable patterns for protecting enterprise file data on Amazon FSx for NetApp ONTAP through defense-in-depth:
@@ -14,6 +16,105 @@ This repository provides reference architectures and deployable patterns for pro
 | **Event-driven response** | FPolicy → EventBridge → Step Functions | Automated quarantine, notification, forensics workflows |
 | **Audit & visibility** | ONTAP Audit Log → S3 AP → Lambda → SIEM | Full operation traceability, compliance |
 | **Data protection** | Snapshot, SnapMirror, SnapLock, FlexClone | Ransomware recovery, evidence preservation |
+
+## Cyber Resilience Framework Mapping
+
+This repository is designed against [NIST Cybersecurity Framework (CSF) 2.0](https://www.nist.gov/cyberframework), with additional alignment to [NIST SP 800-61r3](https://csrc.nist.gov/pubs/sp/800/61/r3/final) (Incident Handling) and [NIST IR 8374r1](https://csrc.nist.gov/pubs/ir/8374/r1/final) (Ransomware Risk Management). The table below maps each CSF 2.0 function to the specific components in this project and the companion [fsxn-observability-integrations](https://github.com/Yoshiki0705/fsxn-observability-integrations) repository.
+
+### NIST CSF 2.0 Function Coverage
+
+| CSF 2.0 Function | Status | This Repo | Companion Repo ([observability](https://github.com/Yoshiki0705/fsxn-observability-integrations)) | Gap / Organizational Responsibility |
+|-------------------|:------:|-----------|---------------------|-----|
+| **Govern (GV)** | ⚠️ | CloudFormation-as-code audit trail, cfn-guard compliance rules, `solutions/compliance/` evidence collection | CloudWatch Logs + SNS notification trails | Risk strategy, roles, board oversight remain organizational decisions; tooling provides evidence artifacts only |
+| **Identify (ID)** | ✅ | Data classification matrix (`docs/`), asset tagging via CFn | Content-level PII scanner (Amazon Comprehend), schema-level field classification | Text/structured-data covered; Office/PDF extraction not yet implemented |
+| **Protect (PR)** | ✅ | SnapLock (WORM), MAV (multi-admin verification), TrendAI inline scan, Deep Instinct AI prevention, export-policy/name-mapping hardening, KMS encryption | ONTAP Snapshot, export-policy, Tamperproof Snapshot | Full for storage-layer safeguards |
+| **Detect (DE)** | ✅ | ARP/AI configuration (`solutions/ontap-native/`), FPolicy event capture, CloudWatch alarms (`templates/observability.yaml`) | EMS webhook pipeline (~30s), CloudWatch Log Alarm (~90s), FPolicy external server | Behavioral ML baseline delegated to SIEM (Datadog/Elastic/Splunk ML) |
+| **Respond (RS)** | ✅ | Step Functions orchestration (quarantine, approval workflows), Security Hub integration | Lambda direct blocking (1.8s measured execution; +10-15s for cold start): name-mapping deny + export-policy deny + NACL deny + session disconnect + protective Snapshot, forensics dashboards (4 SIEMs) | Full for mitigation tooling (source-agnostic via SNS) ¹ |
+| **Recover (RC)** | ⚠️ | SnapMirror lag monitoring (`templates/dr-replication.yaml`), DR replication patterns | Verified-clean recovery point (FlexClone + extension scan + verdict), TTL auto-unblock | Full restore rehearsal recommended via AWS Backup restore testing; RC.CO (stakeholder communication) is minimal |
+
+> ¹ **Respond limitation**: SMB name-mapping deny is ineffective on NTFS security-style volumes (NTFS ACLs are evaluated directly without consulting the UNIX mapping). For NTFS volumes, alternative blocking mechanisms are needed (AD account disable, NTFS ACL removal, or network-layer NACL deny). See the [detailed framework mapping](docs/en/cyber-resilience-framework-mapping.md) for the full constraint matrix.
+
+### NIST SP 800-61r3 Incident Handling Lifecycle
+
+The project maps to SP 800-61's incident handling phases as follows:
+
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│                        NIST SP 800-61r3 Lifecycle                           │
+├──────────────┬──────────────┬──────────────────────┬──────────────────────┤
+│  Preparation │  Detection & │  Containment,        │  Post-Incident       │
+│              │  Analysis    │  Eradication &       │  Activity            │
+│              │              │  Recovery            │                      │
+├──────────────┼──────────────┼──────────────────────┼──────────────────────┤
+│ • SnapLock   │ • ARP/AI     │ • SMB user block     │ • Forensics          │
+│ • MAV        │ • FPolicy    │   (name-mapping)     │   dashboards         │
+│ • TrendAI    │ • EMS webhook│ • NFS IP block       │ • Compliance         │
+│   inline     │ • CloudWatch │   (export-policy     │   evidence pack      │
+│   scan       │   Log Alarm  │   + NACL)            │ • Verified-clean     │
+│ • Deep       │ • SIEM ML    │ • Session disconnect │   recovery point     │
+│   Instinct   │   (delegated)│ • Protective         │ • Audit log          │
+│ • Export-    │              │   Snapshot           │   retention          │
+│   policy     │              │ • Step Functions     │ • Lessons learned    │
+│   hardening  │              │   quarantine         │   (manual)           │
+│ • KMS        │              │ • TTL auto-unblock   │                      │
+│   encryption │              │                      │                      │
+└──────────────┴──────────────┴──────────────────────┴──────────────────────┘
+```
+
+### NIST IR 8374r1 — Ransomware-Specific Outcomes
+
+[NIST IR 8374r1](https://csrc.nist.gov/pubs/ir/8374/r1/final) maps ransomware-specific outcomes to CSF 2.0 functions. This project addresses the following ransomware outcomes:
+
+| IR 8374r1 Outcome | Implementation |
+|-------------------|---------------|
+| **Detect ransomware file manipulation** | ARP/AI entropy + extension-change detection (ONTAP native, no learning period on 9.16.1+) |
+| **Limit propagation** | Automated SMB/NFS access blocking within 2 minutes of detection |
+| **Maintain immutable backups** | SnapLock WORM volumes, Tamperproof Snapshots (cannot be deleted by compromised admin) |
+| **Verify backup integrity before restore** | FlexClone + isolated S3 AP scan for ransomware-associated extensions |
+| **Rapid recovery** | FlexClone for isolated verification of a candidate Snapshot (space-efficient, copy-on-write); actual restore via `volume snapshot restore` or FlexClone promotion is a separate operation |
+| **Evidence preservation** | Protective Snapshot at incident time + CloudWatch Logs audit trail (note: pre-action state not yet captured — see Governance Reporting Guidance below for chain-of-custody gap) |
+
+### Additional Framework Alignment
+
+| Framework | Relevant Components |
+|-----------|-------------------|
+| **AWS Well-Architected — Security Pillar** | IAM least-privilege (per-Lambda roles), encryption at rest (KMS), encryption in transit (TLS to ONTAP REST API), VPC isolation, Security Hub integration |
+| **AWS Well-Architected — Reliability Pillar** | Multi-AZ FSx for ONTAP, SnapMirror cross-region replication, DLQ for failed response actions, CloudWatch alarms on pipeline health |
+| **MITRE ATT&CK (Impact)** | T1486 (Data Encrypted for Impact) → ARP detection + automated blocking; T1490 (Inhibit System Recovery) → SnapLock + Tamperproof Snapshot; T1078 (Valid Accounts) → audit log pipeline for detection/traceability (visibility control, not prevention) |
+| **CIS Controls v8** | Control 8 (Audit Log Management) → S3 AP audit pipeline; Control 11 (Data Recovery) → Snapshot + SnapMirror + verified recovery; Control 13 (Network Monitoring) → FPolicy + CloudWatch |
+
+### Governance Reporting Guidance
+
+When positioning this project's capabilities to a risk committee, compliance officer, or board:
+
+- Frame as: "Automated Respond-phase containment (under 2 min) with Recover-phase pre-validation; Govern-phase maturity and the behavioral ML side of Detect are tracked separately"
+- Do not frame as: "Ransomware protection is complete" — this covers one function deeply (Respond) and contributes to four others; Govern remains an organizational responsibility
+- Evidence artifacts available: CloudFormation deployment records, CloudWatch Logs (trigger source, action taken, API response), DynamoDB verdict records (recovery verification), SNS notification trails
+- Audit-trail limitation: the response pipeline logs post-action state, but does not currently capture pre-action state (the name-mapping/export-policy configuration before the block was applied)
+
+> **Note on status markers**: ✅ indicates a capability is technically implemented and E2E-verified in this codebase. It does not represent compliance certification against any specific regulatory program (FedRAMP, ISMAP, HIPAA, PCI DSS, SOC 2, etc.). Treat these markers as one input when mapping your control requirements to available technical capabilities.
+
+### Operational Considerations
+
+Key caveats identified through multi-stakeholder review:
+
+- **RTO/RPO**: This project does not define fixed RTO/RPO numbers — those are environment-specific and must be established by each deployment based on business requirements. The response module's measured E2E timing (under 2 min detect-to-block, under 3 min worst-case) provides a data point for your RPO calculation, not a guaranteed SLA.
+- **False-positive handling**: Automated blocking carries inherent false-positive risk. The TTL auto-unblock companion stack (`automated-response-ttl.yaml`) limits lockout duration. Always test with non-production users first, and tune upstream detection rules before connecting them to the response pipeline.
+- **Blast radius**: Both SMB name-mapping deny and NFS export-policy deny are **SVM-wide** — they affect all volumes and shares within the target SVM, not just the specified volume. Factor this into multi-tenant SVM designs.
+- **Same-subnet NACL limitation**: NACL deny rules only apply to traffic crossing subnet boundaries. If the attacker's client and FSx for ONTAP ENIs are in the same subnet, the NACL has no effect — the export-policy deny (ONTAP-layer) is the only blocking mechanism in that scenario.
+- **Data exfiltration gap**: ARP/AI detects file encryption (entropy + extension changes) but does not detect data exfiltration without encryption (e.g., pure data theft in double-extortion scenarios). FPolicy-based volume monitoring and SIEM behavioral analytics cover this gap partially.
+- **Domain Admin bypass**: Users who are members of `FileSystemAdministratorsGroup` (typically Domain Admins) bypass name-mapping deny rules entirely. Always test blocking with non-admin users.
+- **Privacy in response logs**: Automated response logs (CloudWatch Logs, SNS messages) contain personal data (username, domain, client IP). Apply appropriate access controls and retention policies.
+- **Evidence tamper-resistance**: CloudWatch Logs in immutable retention mode provides tamper-resistant storage for response audit trails, supporting chain-of-custody requirements.
+- **NFS client-side caching**: Export-policy deny takes effect immediately on the ONTAP server, but Linux NFS clients cache access decisions for up to 60 seconds (`actimeo` default). During this window, an already-mounted client may still perform I/O. The NACL deny rule (for cross-subnet scenarios) provides immediate packet-level blocking that bypasses client caching entirely.
+- **Rollback/undo path**: If an automated block is a false positive, unblock via CLI (`automated-response-cli.sh unblock-smb --domain <CORP> --user <user>` or `unblock-nfs --ip <ip>`). The TTL auto-unblock stack also removes blocks after a configurable duration automatically.
+- **NTFS volume alternatives**: For volumes using NTFS security style (where name-mapping deny is ineffective), consider: (1) disabling the user's AD account directly, (2) removing the user from NTFS share/file permissions, or (3) using NACL deny rules for network-layer blocking.
+- **Zero Trust alignment**: This architecture implements several Zero Trust principles — deny-by-default (export-policy/name-mapping), verify explicitly (per-request ACL evaluation), assume breach (automated containment + evidence preservation). It does not implement microsegmentation at the file level.
+- **AWS-specific implementation**: This project uses AWS-native services (Lambda, Step Functions, CloudFormation, CloudWatch, SNS, EventBridge). It is not directly portable to other cloud providers. The ONTAP REST API patterns are portable across any ONTAP deployment, but the orchestration and automation layer is AWS-specific.
+
+For the complete function-by-function breakdown with alternative implementation paths and vendor-neutral comparison tables, see the [Cyber Resilience Capability Map](https://github.com/Yoshiki0705/fsxn-observability-integrations/blob/main/docs/en/cyber-resilience-capability-map.md) in the companion repository.
+
+Detailed framework mapping documentation: [EN](docs/en/cyber-resilience-framework-mapping.md) | [JA](docs/ja/cyber-resilience-framework-mapping.md)
 
 ## Project Structure
 
@@ -132,9 +233,26 @@ This project focuses on the *file storage layer* (NAS workloads via NFS/SMB) whe
 
 ## Related Projects
 
-- [FSx for ONTAP S3 Access Points Serverless Patterns](https://github.com/Yoshiki0705/FSx-for-ONTAP-S3AccessPoints-Serverless-Patterns)
-- [FSx for ONTAP Agentic Access-Aware RAG](https://github.com/Yoshiki0705/FSx-for-ONTAP-Agentic-Access-Aware-RAG)
-- [FSx for ONTAP Observability Integrations](https://github.com/Yoshiki0705/fsxn-observability-integrations)
+| Repository | Relationship to This Repo | Key Components |
+|-----------|---------------------------|----------------|
+| [FSx for ONTAP Observability Integrations](https://github.com/Yoshiki0705/fsxn-observability-integrations) | **Companion** — implements detection and response primitives that plug into this repo's architecture layers | Automated access blocking (SMB/NFS), EMS webhook pipeline, CloudWatch Log Alarm, verified recovery point (FlexClone + scan), PII classification scanner, NIST CSF 2.0 capability map |
+| [FSx for ONTAP S3 Access Points Serverless Patterns](https://github.com/Yoshiki0705/FSx-for-ONTAP-S3AccessPoints-Serverless-Patterns) | **Foundation** — S3 Access Point patterns used by both the audit log pipeline and the recovery verification workflow | S3 AP lifecycle management, presigned URL access, Lambda integration patterns |
+| [FSx for ONTAP Agentic Access-Aware RAG](https://github.com/Yoshiki0705/FSx-for-ONTAP-Agentic-Access-Aware-RAG) | **Adjacent** — demonstrates permission-aware AI/RAG on the same FSx for ONTAP data that this repo protects | ACL-aware vector search, Bedrock Knowledge Bases, per-user authorization filtering |
+
+### How the Observability Repo Connects
+
+The [fsxn-observability-integrations](https://github.com/Yoshiki0705/fsxn-observability-integrations) repo provides the working implementations that connect to this repo's event-driven response layer:
+
+- **Detect → Respond (under 2 minutes E2E)**: ARP/AI detection → EMS webhook → observability monitor → SNS → Lambda → ONTAP REST API blocking + protective Snapshot
+- **Respond → Recover**: Protective Snapshot → FlexClone → isolated S3 AP scan → verified-clean verdict before restore
+- **Identify**: Content-level PII classification via Amazon Comprehend (file contents, not filenames)
+
+See [docs/en/companion-repos-integration.md](docs/en/companion-repos-integration.md) for the full layer mapping, deployment sequence, and cross-reference table.
+
+### Related Articles
+
+- [Automated Access Blocking for FSx for ONTAP — From Ransomware Detection to Storage-Layer Deny](https://dev.to/aws-builders/automated-access-blocking-for-fsx-for-ontap-from-ransomware-detection-to-storage-layer-deny-4l2g) (EN)
+- [Amazon FSx for NetApp ONTAP の自動アクセス遮断 — ランサムウェア検知からストレージ層ブロックまで](https://hakobiya.hatenablog.com/entry/fsxn-automated-incident-response) (JA)
 
 ## Security
 
