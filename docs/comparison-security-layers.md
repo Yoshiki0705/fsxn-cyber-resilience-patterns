@@ -434,3 +434,28 @@ Partner/SI が顧客環境で最小限の PoC を実施するための手順。
 - [NetApp ONTAP — FPolicy](https://docs.netapp.com/us-en/ontap/nas-audit/fpolicy-config-types-concept.html)
 - [TrendAI Vision One — File Security](https://www.trendmicro.com/en_us/business/products/network-security/file-storage-security.html)
 - [Deep Instinct for NetApp ONTAP](https://www.deepinstinct.com/partners/netapp)
+
+
+---
+
+## 原則の移植可能性 / Portable Principles
+
+本プロジェクトは Amazon FSx for NetApp ONTAP をデモンストレーションプラットフォームとして使用しているが、防御多層化の原則とイベント駆動型応答パターンは汎用的に適用可能である。
+
+This project uses FSx for ONTAP because it provides unique storage-native security primitives (ARP, FPolicy, SnapLock, Tamperproof Snapshots, Multi-Admin Verification) not available in general-purpose storage. However, the defense-in-depth principles and event-driven response patterns are broadly applicable.
+
+| 本プロジェクトのデモ内容 | 適用可能な一般原則 |
+|------------------------|-------------------|
+| ONTAP ARP (行動検知) | データ層でのあらゆる異常検知 |
+| FPolicy → EventBridge | あらゆるイベント駆動型セキュリティオートメーション |
+| Vscan/ICAP 統合 | あらゆるインラインファイルスキャンアーキテクチャ |
+| SnapLock (WORM) | あらゆる不変ストレージによる証拠保全 |
+| Step Functions 隔離 | あらゆる自動インシデントレスポンスワークフロー |
+
+| This project demonstrates | Principle applies to |
+|---------------------------|---------------------|
+| ONTAP ARP (behavioral detection) | Any anomaly detection at the data layer |
+| FPolicy → EventBridge | Any event-driven security automation |
+| Vscan/ICAP integration | Any inline file scanning architecture |
+| SnapLock (WORM) | Any immutable storage for evidence preservation |
+| Step Functions quarantine | Any automated incident response workflow |

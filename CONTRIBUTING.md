@@ -111,6 +111,12 @@ sec: add KMS key rotation policy
 - `actions/checkout` must set `persist-credentials: false`
 - Run `make security` before pushing
 
+### Dependency Automation (Renovate)
+
+This repository uses [Renovate](https://github.com/apps/renovate) for automated dependency updates. The configuration lives in `renovate.json` at the repo root.
+
+> **Setup note**: Renovate requires the [Renovate GitHub App](https://github.com/apps/renovate) to be enabled on this repository (one-time setup by a repository admin). The `renovate.json` file only configures its behavior — it does not function without the App installed.
+
 ## Code Review Checklist
 
 - [ ] cfn-lint passes (`make lint`)
