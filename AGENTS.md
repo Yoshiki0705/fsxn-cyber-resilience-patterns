@@ -98,3 +98,44 @@ This project compares multiple security technologies. Always:
 - Bilingual: JA (primary) + EN
 - Code/commits: English
 - Conventional commits: `feat:`, `fix:`, `docs:`, `chore:`, `sec:`
+
+## Common Pitfalls
+
+| Pitfall | Root Cause | Solution |
+|---------|-----------|----------|
+| AgentCore Gateway assumed us-east-1 only | Workshop examples use us-east-1 | **ap-northeast-1 で利用可能（検証済み 2026-07）**。Gateway + Lambda を同一リージョンに配置 |
+| AgentCore Lambda event: `event.toolName` で取得 | 誤った前提 | `context.client_context.custom['bedrockAgentCoreToolName']` を使用。ツール名は `targetName___toolName` 形式 |
+| `create-gateway-target` で Lambda not found | Gateway と Lambda のリージョン不一致 | 同一リージョン配置必須。クロスリージョン Lambda 呼び出しは不可 |
+| `CAPABILITY_IAM` で InsufficientCapabilitiesException | テンプレートに名前付き IAM ロール含む | `--capabilities CAPABILITY_NAMED_IAM` を使用 |
+
+## Agent Output Standards
+
+> ユーザーレベル Kiro グローバル steering のミラー。steering 未ロードの環境でも従えるようにする。
+
+> CI: `.github/workflows/agent-output-audit.yml`（命名/中立性/リーク/parity）と `gitleaks.yml`（シークレット）。
+
+### Naming (NetApp / AWS)
+
+- 初出は **Amazon FSx for NetApp ONTAP**、以降 **FSx for ONTAP**。`FSxN` / 単独 `FSx` / `FSx ONTAP` は不可。アクセスポイントは **FSx for ONTAP S3 AP**。
+- NetApp Workload Factory / NetApp Console / BlueXP は提案しない。native 等価物（CloudWatch, ONTAP REST API, FabricPool, AWS DataSync, Snapshot/FlexClone/SnapMirror）に置換。
+- 例外: 外部引用タイトルの逐語引用（その行に `allow:naming` コメントを付与）。
+
+### Vendor neutrality (right-tool-for-the-job)
+
+- ベンダー対決/優劣表現は禁止（"best", "beats X", "X より優れている", "競合ツール", "優位性", "game-changer"）。選択肢として提示し、推奨案自身の制約も含めてトレードオフを対称に記載。
+
+### Public-output safety
+
+- 個人名/ペルソナ名・メール・AWS アカウントID・内部IP/ホスト名・サポートケース番号・ベンダー内部チケットID をコミットしない。role ベース表記（"Storage Specialist lens"）と "an internal product request (tracked)" を使う。
+- プロセスメタデータのノイズ禁止（"Persona Review Summary"・レビューラウンド・日付・レンズ数）。レビュー知見は inline の role-based lens note（`> **Topic** (Role lens): ...`）として織り込み、provenance は `.private/`（gitignore）へ。
+
+### Bilingual docs (JA primary + EN)
+
+- JA/EN parity を維持（セクション構成/数の一致、inline note の対応）。片方を変更したら同じ変更で両方に反映。
+
+### Before committing docs
+
+```bash
+gitleaks detect --config .gitleaks.toml --no-git --source .
+# CI が agent-output チェックをミラー: .github/workflows/agent-output-audit.yml
+```
