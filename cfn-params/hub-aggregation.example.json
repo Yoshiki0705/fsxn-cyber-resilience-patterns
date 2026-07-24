@@ -1,0 +1,18 @@
+[
+  {
+    "ParameterKey": "ProjectName",
+    "ParameterValue": "fsxn-cyber-resilience"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "OrganizationId",
+    "ParameterValue": "o-exampleorgid"
+  },
+  {
+    "ParameterKey": "SpokeAccountIds",
+    "ParameterValue": ""
+  }
+]

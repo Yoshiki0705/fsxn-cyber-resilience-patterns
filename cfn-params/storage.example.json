@@ -1,0 +1,34 @@
+[
+  {
+    "ParameterKey": "ProjectName",
+    "ParameterValue": "fsxn-cyber-resilience"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "DeploymentType",
+    "ParameterValue": "SINGLE_AZ_1"
+  },
+  {
+    "ParameterKey": "ThroughputCapacity",
+    "ParameterValue": "128"
+  },
+  {
+    "ParameterKey": "StorageCapacity",
+    "ParameterValue": "1024"
+  },
+  {
+    "ParameterKey": "FsxAdminPassword",
+    "ParameterValue": "REPLACE_WITH_SECURE_PASSWORD"
+  },
+  {
+    "ParameterKey": "ActiveDirectoryId",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "ProductionVolumeSize",
+    "ParameterValue": "100"
+  }
+]

@@ -1,0 +1,46 @@
+[
+  {
+    "ParameterKey": "ProjectName",
+    "ParameterValue": "fsxn-cyber-resilience"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "staging"
+  },
+  {
+    "ParameterKey": "EnableVscan",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "EnableDeepInstinct",
+    "ParameterValue": "false"
+  },
+  {
+    "ParameterKey": "VscanInstanceType",
+    "ParameterValue": "c6g.xlarge"
+  },
+  {
+    "ParameterKey": "DeepInstinctInstanceType",
+    "ParameterValue": "c6i.xlarge"
+  },
+  {
+    "ParameterKey": "SubnetSecurity1Id",
+    "ParameterValue": "subnet-0aaa111122223333a"
+  },
+  {
+    "ParameterKey": "SubnetSecurity2Id",
+    "ParameterValue": "subnet-0bbb444455556666b"
+  },
+  {
+    "ParameterKey": "SgVscanId",
+    "ParameterValue": "sg-0cccc33333333333c"
+  },
+  {
+    "ParameterKey": "VscanDesiredCapacity",
+    "ParameterValue": "2"
+  },
+  {
+    "ParameterKey": "DeepInstinctDesiredCapacity",
+    "ParameterValue": "2"
+  }
+]

@@ -1,0 +1,14 @@
+[
+  {
+    "ParameterKey": "ProjectName",
+    "ParameterValue": "fsxn-cyber-resilience"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "SecurityAlertTopicArn",
+    "ParameterValue": "arn:aws:sns:ap-northeast-1:123456789012:fsxn-cyber-resilience-security-alerts-dev"
+  }
+]

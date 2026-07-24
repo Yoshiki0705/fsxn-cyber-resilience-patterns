@@ -1,0 +1,30 @@
+[
+  {
+    "ParameterKey": "ProjectName",
+    "ParameterValue": "fsxn-cyber-resilience"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "TemplatesBucketName",
+    "ParameterValue": "REPLACE_WITH_TEMPLATES_BUCKET"
+  },
+  {
+    "ParameterKey": "TemplatesPrefix",
+    "ParameterValue": "templates/"
+  },
+  {
+    "ParameterKey": "AvailabilityZone1",
+    "ParameterValue": "ap-northeast-1a"
+  },
+  {
+    "ParameterKey": "AvailabilityZone2",
+    "ParameterValue": "ap-northeast-1c"
+  },
+  {
+    "ParameterKey": "NotificationEmail",
+    "ParameterValue": "security-alerts@example.com"
+  }
+]

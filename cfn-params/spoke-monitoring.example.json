@@ -1,0 +1,22 @@
+[
+  {
+    "ParameterKey": "ProjectName",
+    "ParameterValue": "fsxn-cyber-resilience"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "HubAccountId",
+    "ParameterValue": "123456789012"
+  },
+  {
+    "ParameterKey": "HubRegion",
+    "ParameterValue": "ap-northeast-1"
+  },
+  {
+    "ParameterKey": "HubEventBusName",
+    "ParameterValue": "fsxn-cyber-resilience-hub-dev"
+  }
+]

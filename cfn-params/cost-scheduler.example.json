@@ -1,0 +1,18 @@
+[
+  {
+    "ParameterKey": "ProjectName",
+    "ParameterValue": "fsxn-cyber-resilience"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "StopSchedule",
+    "ParameterValue": "cron(0 11 ? * MON-FRI *)"
+  },
+  {
+    "ParameterKey": "StartSchedule",
+    "ParameterValue": "cron(0 23 ? * SUN-THU *)"
+  }
+]

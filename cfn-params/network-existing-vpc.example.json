@@ -1,0 +1,50 @@
+[
+  {
+    "ParameterKey": "ProjectName",
+    "ParameterValue": "fsxn-cyber-resilience"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "UseExistingVpc",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "ExistingVpcId",
+    "ParameterValue": "vpc-0123456789abcdef0"
+  },
+  {
+    "ParameterKey": "ExistingSubnetFsx1Id",
+    "ParameterValue": "subnet-0aaa111122223333a"
+  },
+  {
+    "ParameterKey": "ExistingSubnetFsx2Id",
+    "ParameterValue": "subnet-0bbb444455556666b"
+  },
+  {
+    "ParameterKey": "ExistingSubnetCompute1Id",
+    "ParameterValue": "subnet-0ccc777788889999c"
+  },
+  {
+    "ParameterKey": "ExistingSubnetCompute2Id",
+    "ParameterValue": "subnet-0ddd000011112222d"
+  },
+  {
+    "ParameterKey": "ExistingSgFsxId",
+    "ParameterValue": "sg-0aaaa11111111111a"
+  },
+  {
+    "ParameterKey": "ExistingSgLambdaId",
+    "ParameterValue": "sg-0bbbb22222222222b"
+  },
+  {
+    "ParameterKey": "ClientCidr",
+    "ParameterValue": "198.51.100.0/24"
+  },
+  {
+    "ParameterKey": "EnableNatGateway",
+    "ParameterValue": "true"
+  }
+]

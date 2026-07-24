@@ -1,0 +1,30 @@
+[
+  {
+    "ParameterKey": "ProjectName",
+    "ParameterValue": "fsxn-cyber-resilience"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "NotificationEmail",
+    "ParameterValue": "security-alerts@example.com"
+  },
+  {
+    "ParameterKey": "LambdaArtifactBucket",
+    "ParameterValue": "REPLACE_WITH_YOUR_ARTIFACT_BUCKET"
+  },
+  {
+    "ParameterKey": "LambdaArtifactPrefix",
+    "ParameterValue": "lambda-packages"
+  },
+  {
+    "ParameterKey": "EventTransformerS3Key",
+    "ParameterValue": "lambda-packages/event-transformer-latest.zip"
+  },
+  {
+    "ParameterKey": "QuarantineActionS3Key",
+    "ParameterValue": "lambda-packages/quarantine-action-latest.zip"
+  }
+]
